@@ -216,8 +216,12 @@ class _Toast extends StatelessWidget {
 }
 
 /// Telefondan yuborilgan fayllar papkasi: Ubuntu’da “Videolar/Telefon TV”,
-/// telefonda ilovaning o‘z papkasi.
+/// Mac’da “Filmlar/Telefon TV” (~/Movies), telefonda ilovaning o‘z papkasi.
 Future<Directory> uploadDirectory() async {
+  if (Platform.isMacOS) {
+    final home = Platform.environment['HOME'] ?? Directory.systemTemp.path;
+    return Directory('$home/Movies/Telefon TV');
+  }
   if (Platform.isLinux) {
     final home = Platform.environment['HOME'] ?? Directory.systemTemp.path;
     var videos = '$home/Videos';

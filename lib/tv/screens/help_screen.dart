@@ -47,7 +47,7 @@ class HelpScreen extends StatelessWidget {
     ),
     (
       Icons.computer_rounded,
-      'Kompyuter (Ubuntu) orqali',
+      'Kompyuter (Ubuntu / Mac) orqali',
       [
         'Kompyuter HDMI kabel bilan televizorga, telefon zaryad simi bilan kompyuterga ulanadi.',
         'Telefonda “USB modem” (Android) yoki “Modem rejimi” (iPhone) ni yoqing → Pult bo‘limidagi QR kodni skanerlang.',

@@ -305,6 +305,7 @@ class RemoteServer {
     const hidden = [
       'rmnet', 'pdp', 'ccmni', 'utun', 'tun', 'tap', 'docker', 'virbr', //
       'veth', 'br-', 'lxc', 'vmnet', 'vboxnet', 'zt', 'tailscale', 'wg', 'lo',
+      'awdl', 'llw', 'anpi', 'gif', 'stf', // macOS ichki interfeyslari
     ];
     if (hidden.any(n.startsWith)) return 9;
     if (n.startsWith('usb') || n.startsWith('enx') || n.startsWith('rndis')) {

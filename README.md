@@ -41,6 +41,58 @@ uyasidan** televizorning **HDMI** uyasiga ulanadi:
 Televizor pultida **SOURCE / INPUT → HDMI** ni tanlang (Samsung, Artel, Yasin,
 LG va boshqalar — HDMI uyasi bor istalgan televizor).
 
+## Mac orqali (HDMI) — yengil variant
+
+```
+iPhone ──zaryad simi (USB)──► Mac ──HDMI / USB-C → HDMI──► televizor (Yasin va h.k.)
+```
+
+- **Yengil:** video, jonli kanallar (HLS) va musiqa macOS’ning o‘z
+  AVFoundation’i orqali — qo‘shimcha kutubxona o‘rnatilmaydi, Mac’ning
+  apparat dekoderi ishlaydi, batareya kam sarflanadi. Universal ilova: Apple
+  Silicon (M1…M4) va Intel Mac, macOS 10.15 Catalina va yangisi.
+- **Televizor ulanganda** Telefon TV o‘sha ekranni to‘liq egallaydi, Mac
+  ekrani bo‘sh qoladi; HDMI uzilsa — oddiy oynaga qaytadi. Televizorda
+  ko‘rsatayotganda ekran o‘chmaydi, Mac uxlamaydi. Qo‘lda tanlash:
+  `TELEFON_TV_SCREEN=1`.
+- **Ulash:** HDMI uyasi bor Mac (MacBook Pro 2021+, Mac mini, Mac Studio) —
+  oddiy HDMI kabel; boshqalari — USB-C → HDMI kabel; eski Mac — Mini
+  DisplayPort → HDMI.
+- **iPhone — pult, USB kabel orqali:** iPhone’ni Mac’ga ulang → “Ishonish” →
+  Sozlamalar → **Modem rejimi**. macOS buni o‘zi taniydi, qo‘shimcha dastur
+  kerak emas. Telefon TV → **Pult** → “iPhone (USB / modem)” QR kodi →
+  iPhone kamerasi → Safari’da pult. Yuborilgan videolar `Filmlar/Telefon TV`
+  (`~/Movies/Telefon TV`) ga tushadi va televizorda ochiladi. (Android
+  telefonni Mac’ga Wi-Fi orqali ulang: macOS Android’ning USB modemini
+  tanimaydi.)
+- **Ovoz televizordan:** Tizim sozlamalari → Ovoz → Chiqish → televizor.
+
+**O‘rnatish:** [Releases](https://github.com/z3wax/phtv/releases/latest) →
+`TelefonTV-…-macos.dmg` → oching → “Telefon TV” ni **Applications** ga
+torting. Ilova Apple tomonidan tasdiqlanmagan (notarizatsiyasiz), shuning
+uchun birinchi ochishda: Tizim sozlamalari → Maxfiylik va xavfsizlik →
+**“Baribir ochish”**. Yoki Terminal’da:
+
+```bash
+xattr -cr "/Applications/Telefon TV.app"
+```
+
+Tarmoq so‘rovlari chiqsa (“kiruvchi ulanishlarga ruxsat”, “lokal tarmoq”) —
+**Ruxsat berish**: pult shu orqali ulanadi.
+
+**Fonda ishlash** (Mac yoqilganda yashirin ishga tushadi, televizor
+ulanganda o‘zi paydo bo‘ladi):
+
+```bash
+mkdir -p ~/Library/LaunchAgents && printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict>' '<key>Label</key><string>uz.telefontv.background</string>' '<key>ProgramArguments</key><array><string>/Applications/Telefon TV.app/Contents/MacOS/Telefon TV</string><string>--background</string></array>' '<key>RunAtLoad</key><true/>' '</dict></plist>' > ~/Library/LaunchAgents/uz.telefontv.background.plist
+```
+
+```bash
+launchctl load ~/Library/LaunchAgents/uz.telefontv.background.plist
+```
+
+O‘chirish: `launchctl unload ~/Library/LaunchAgents/uz.telefontv.background.plist`.
+
 ## Ubuntu kompyuter orqali (HDMI) — telefon USB kabel bilan
 
 Telefonda HDMI adapter bo‘lmasa, eng qulay yo‘l: **kompyuter HDMI orqali
@@ -215,6 +267,7 @@ Samsung telefonlar HDMI ulanganda DeX rejimini ochishi mumkin: bildirishnomadan
 - `TelefonTV-…-imzosiz.ipa` — iPhone: imzosiz IPA, o‘z Apple ID bilan imzolab
   o‘rnatiladi (Ubuntu’da **iloader** — iloader.app, yoki Sideloadly / AltStore);
   bepul Apple ID’da 7 kunda qayta o‘rnatish kerak.
+- `TelefonTV-…-macos.dmg` — Mac (yuqorida).
 - `TelefonTV-…-ubuntu-24.04.tar.gz` / `-22.04` — Ubuntu kompyuter (yuqorida).
 
 Har bir yangilanishdan keyin GitHub Actions bularni o‘zi yig‘ib, Releases’ga

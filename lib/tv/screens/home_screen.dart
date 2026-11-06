@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../platform.dart';
+
 import '../input.dart';
 import '../model.dart';
 import '../services.dart';
@@ -227,7 +229,7 @@ final _apps = <_App>[
       Color(0xFF312E81),
     ], (c) => _push(c, const AppsScreen())),
   // Fleshkaga yozish — telefon uchun (kompyuterda kerak emas).
-  if (!Platform.isLinux)
+  if (!isDesktop)
     _App('USB', Icons.usb_rounded, const [
       Color(0xFF34D399),
       Color(0xFF047857),

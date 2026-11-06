@@ -7,12 +7,18 @@ import 'phone/phone_shell.dart';
 import 'tv/tv_app.dart';
 
 /// Telefon ekrani: televizor alohida ulangan bo‘lsa — pult, aks holda Smart TV.
-/// Ubuntu kompyuter: televizorga HDMI orqali ulanadi va o‘zi Smart TV bo‘ladi.
+/// Ubuntu / Mac kompyuter: televizorga HDMI orqali ulanadi va o‘zi Smart TV bo‘ladi.
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isLinux) {
     // Linux’da video, jonli kanallar va musiqa mpv (media_kit) orqali.
     TvLinuxPlayer.register();
+    runApp(const TvApp(onTvDisplay: false));
+    return;
+  }
+  if (Platform.isMacOS) {
+    // Mac: video macOS’ning o‘z AVFoundation’i orqali (qo‘shimcha
+    // kutubxonasiz, apparat dekoderi bilan) — yengil va tejamkor.
     runApp(const TvApp(onTvDisplay: false));
     return;
   }

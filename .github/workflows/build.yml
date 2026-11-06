@@ -125,11 +125,41 @@ jobs:
           path: dist/*.tar.gz
           if-no-files-found: error
 
-  # Har push’dan keyin APK, IPA va Ubuntu fayllari Releases sahifasiga
+  macos:
+    name: macOS (Mac → HDMI → televizor)
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # Universal ilova: Apple Silicon (M1…) va Intel Mac’lar, macOS 10.15+.
+      - run: flutter build macos --release
+      - name: Package the DMG
+        run: |
+          version=$(grep '^version:' pubspec.yaml | awk '{print $2}' | sed 's/+.*//')
+          app="build/macos/Build/Products/Release/Telefon TV.app"
+          lipo -archs "$app/Contents/MacOS/Telefon TV"
+          mkdir -p dmg dist
+          cp -R "$app" dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname "Telefon TV" -srcfolder dmg -ov -format UDZO "dist/TelefonTV-$version-macos.dmg"
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TelefonTV-macOS
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  # Har push’dan keyin APK, IPA, Mac va Ubuntu fayllari Releases sahifasiga
   # qo‘yiladi — telefonda login qilmasdan yuklab olish mumkin.
   release:
     name: Releases’ga joylash
-    needs: [android, ios, linux]
+    needs: [android, ios, linux, macos]
     if: ${{ always() && needs.android.result == 'success' && needs.ios.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
@@ -151,6 +181,8 @@ jobs:
           **Android:** `.apk` faylni telefonda yuklab oling va o‘rnating (so‘rasa, “noma’lum manbalar” ga ruxsat bering).
 
           **iPhone:** `-imzosiz.ipa` — o‘z Apple ID bilan imzolab o‘rnatiladi: Ubuntu’da iloader (iloader.app), yoki Sideloadly / AltStore. Bepul Apple ID’da 7 kunda qayta o‘rnatiladi.
+
+          **Mac (HDMI → televizor):** `-macos.dmg` ni oching, “Telefon TV” ni Applications’ga torting. Birinchi ochishda: Tizim sozlamalari → Maxfiylik va xavfsizlik → “Baribir ochish” (yoki Terminal’da `xattr -cr "/Applications/Telefon TV.app"`).
 
           **Ubuntu kompyuter (HDMI → televizor):** `sudo apt install libmpv2` (22.04 da `libmpv1`), arxivni oching va `./install.sh --autostart`.
 

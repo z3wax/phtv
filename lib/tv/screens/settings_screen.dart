@@ -1,6 +1,6 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
+
+import '../../platform.dart';
 
 import '../../native.dart';
 
@@ -129,7 +129,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             if (mounted) setState(() => _isHome = now);
                           },
                         ),
-                      if (!Platform.isLinux)
+                      if (!isDesktop)
                         _Row(
                           icon: Icons.usb_rounded,
                           title: 'USB orqali (fleshka, Smart Yasin)',

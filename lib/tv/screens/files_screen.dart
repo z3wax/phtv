@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../platform.dart';
+
 import '../model.dart';
 import '../services.dart';
 import '../store.dart';
@@ -138,7 +140,7 @@ class _FilesScreenState extends State<FilesScreen> {
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  Platform.isLinux
+                                  isDesktop
                                       ? 'Telefondan yuboring: Pult → “Fayl yuborish” (USB kabel yoki Wi-Fi orqali). '
                                             'Yoki “Fayllar” bilan shu kompyuterdagi videolarni oching.'
                                       : services.onTvDisplay

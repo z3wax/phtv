@@ -1,8 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+
+import '../../platform.dart';
 
 import '../server.dart';
 import '../services.dart';
@@ -79,7 +80,7 @@ class _PairScreenState extends State<PairScreen> {
   Widget _body(List<LocalAddress> list, String key) {
     final a = list[_selected.clamp(0, list.length - 1)];
     final url = 'http://${a.ip}:${RemoteServer.defaultPort}/?k=$key';
-    final desktop = Platform.isLinux || Platform.isWindows || Platform.isMacOS;
+    final desktop = isDesktop;
     final steps = a.label == 'USB kabel' || a.label.startsWith('iPhone')
         ? const [
             '1. Telefon shu kompyuterga USB kabel bilan ulangan.',
@@ -202,7 +203,7 @@ class _NoNetwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final desktop = Platform.isLinux || Platform.isWindows || Platform.isMacOS;
+    final desktop = isDesktop;
     return Center(
       child: SizedBox(
         width: 900,
