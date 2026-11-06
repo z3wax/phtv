@@ -8,6 +8,7 @@ import '../services.dart';
 import '../store.dart';
 import '../weather.dart';
 import '../widgets.dart';
+import 'assistant_settings_screen.dart';
 import 'help_screen.dart';
 import 'pair_screen.dart';
 
@@ -101,6 +102,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             }
                           },
                         ),
+                      ),
+                      _Row(
+                        icon: Icons.auto_awesome_rounded,
+                        title: 'AI yordamchi',
+                        subtitle:
+                            'Bepul AI (Gemini, Groq yoki kalitsiz), ovozli javob',
+                        value: store.assistant.value.label,
+                        onTap: () => _push(const AssistantSettingsScreen()),
+                      ),
+                      _Row(
+                        icon: Icons.local_movies_rounded,
+                        title: 'Kino saytlari',
+                        subtitle:
+                            'O‘zgartirilgan manzillar va qo‘shilgan saytlarni tiklash',
+                        value: '${store.sites.value.length} ta',
+                        onTap: () {
+                          store.resetSites();
+                          services.showToast('Kino saytlari tiklandi');
+                          setState(() {});
+                        },
                       ),
                       _Row(
                         icon: Icons.settings_remote_rounded,

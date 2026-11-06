@@ -10,6 +10,7 @@ class MediaItem {
     this.group = '',
     this.positionMs = 0,
     this.durationMs = 0,
+    this.quality = 0,
     int? updatedAt,
   }) : updatedAt = updatedAt ?? DateTime.now().millisecondsSinceEpoch;
 
@@ -23,6 +24,18 @@ class MediaItem {
   int positionMs;
   int durationMs;
   int updatedAt;
+
+  /// Kanal sifati (vertikal piksel): 2160, 1080, 720… 0 — noma’lum.
+  final int quality;
+
+  /// Sifat belgisi: 4K, FHD, HD yoki bo‘sh.
+  String get qualityLabel => quality >= 2160
+      ? '4K'
+      : quality >= 1080
+      ? 'FHD'
+      : quality >= 720
+      ? 'HD'
+      : '';
 
   bool get isFile => !source.contains('://');
   bool get isLive => kind == MediaKind.live;
@@ -45,6 +58,7 @@ class MediaItem {
     if (group.isNotEmpty) 'g': group,
     if (positionMs > 0) 'p': positionMs,
     if (durationMs > 0) 'd': durationMs,
+    if (quality > 0) 'q': quality,
     'u': updatedAt,
   };
 
@@ -63,6 +77,7 @@ class MediaItem {
       group: (json['g'] as String?) ?? '',
       positionMs: (json['p'] as num?)?.toInt() ?? 0,
       durationMs: (json['d'] as num?)?.toInt() ?? 0,
+      quality: (json['q'] as num?)?.toInt() ?? 0,
       updatedAt: (json['u'] as num?)?.toInt(),
     );
   }

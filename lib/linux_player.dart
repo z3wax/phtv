@@ -91,6 +91,17 @@ class TvLinuxPlayer extends VideoPlayerPlatform {
       // Ovoz qurilmasi bo‘lmasa — ovozsiz davom etish; tarmoq uzilishini kutish.
       await native.setProperty('audio-fallback-to-null', 'yes');
       await native.setProperty('network-timeout', '20');
+      // Sifat va barqarorlik: HLS’da eng yuqori sifat, katta bufer,
+      // uzilganda qayta ulanish.
+      await native.setProperty('hls-bitrate', 'max');
+      await native.setProperty('cache', 'yes');
+      await native.setProperty('cache-secs', '30');
+      await native.setProperty('demuxer-max-bytes', '200MiB');
+      await native.setProperty('demuxer-readahead-secs', '20');
+      await native.setProperty(
+        'stream-lavf-o',
+        'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5',
+      );
     }
     _listen(id);
 

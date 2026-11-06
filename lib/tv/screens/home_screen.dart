@@ -4,17 +4,23 @@ import 'package:flutter/material.dart';
 
 import '../../platform.dart';
 
+import '../assistant/assistant.dart';
 import '../input.dart';
 import '../model.dart';
+import '../motion.dart';
 import '../services.dart';
+import '../sites.dart';
 import '../store.dart';
 import '../weather.dart';
 import '../widgets.dart';
 import 'apps_screen.dart';
+import 'browser_screen.dart';
 import 'files_screen.dart';
 import 'live_screen.dart';
 import 'pair_screen.dart';
+import 'player_hub_screen.dart';
 import 'player_screen.dart';
+import 'radio_screen.dart';
 import 'settings_screen.dart';
 import 'sleep_screen.dart';
 
@@ -173,6 +179,50 @@ void openLive(BuildContext context, {bool favorites = false}) =>
 void openFiles(BuildContext context, [MediaKind? filter]) =>
     _push(context, FilesScreen(filter: filter));
 
+void openRadio(BuildContext context) => _push(context, const RadioScreen());
+
+void openBrowser(BuildContext context) => _push(context, const BrowserScreen());
+
+void openPlayerHub(BuildContext context) =>
+    _push(context, const PlayerHubScreen());
+
+/// Yordamchi: televizorda mikrofon yo‘q — savol pultda yoziladi yoki
+/// pultdagi 🎤 tugmasi bilan aytiladi.
+void openAssistant(BuildContext context) => TvServices.instance.editText(
+  context,
+  title: 'Yordamchiga savol (yoki pultdagi 🎤 tugmasi)',
+  value: '',
+  onSubmit: (v) {
+    if (v.trim().isNotEmpty) Assistant.instance.ask(v);
+  },
+);
+
+void openSiteTile(BuildContext context, Site site) {
+  if (site.url.isEmpty) {
+    TvServices.instance.askSiteUrl(context, site);
+  } else {
+    TvServices.instance.openSite(site.url, site.name);
+  }
+}
+
+void addSiteTile(BuildContext context) => TvServices.instance.editText(
+  context,
+  title: 'Yangi sayt manzili (masalan: kinogo.uz)',
+  value: '',
+  onSubmit: (v) {
+    final url = normalizeUrl(v);
+    if (url == null) {
+      TvServices.instance.showToast('Manzil noto‘g‘ri');
+      return;
+    }
+    final host = Uri.parse(url).host.replaceFirst('www.', '');
+    final dot = host.indexOf('.');
+    final name = dot > 0 ? host.substring(0, dot) : host;
+    TvStore.instance.addSite(name[0].toUpperCase() + name.substring(1), url);
+    TvServices.instance.showToast('$name qo‘shildi');
+  },
+);
+
 void playItem(BuildContext context, MediaItem item) {
   if (item.isLive) {
     final list = TvStore.instance.channels.value;
@@ -202,26 +252,28 @@ final _apps = <_App>[
     'YouTube',
     Icons.smart_display_rounded,
     const [Color(0xFFFF2D2D), Color(0xFFB80000)],
-    (_) => TvServices.instance.openApp('https://www.youtube.com/', 'YouTube'),
+    (_) => TvServices.instance.openYoutube(''),
   ),
-  _App('Filmlar', Icons.movie_rounded, const [
+  _App('Yordamchi', Icons.auto_awesome_rounded, const [
+    Color(0xFFAF52DE),
+    Color(0xFF2E1065),
+  ], openAssistant),
+  _App('Video pleyer', Icons.play_circle_fill_rounded, const [
     Color(0xFF2B2B2B),
     Color(0xFF0E0E0E),
-  ], (c) => openFiles(c, MediaKind.video)),
+  ], openPlayerHub),
   _App('Rasmlar', Icons.photo_library_rounded, const [
     Color(0xFFFFB800),
     Color(0xFFFF5E62),
   ], (c) => openFiles(c, MediaKind.image)),
-  _App('Musiqa', Icons.music_note_rounded, const [
+  _App('Radio', Icons.radio_rounded, const [
     Color(0xFFFC5C7D),
     Color(0xFF6A3093),
-  ], (c) => openFiles(c, MediaKind.audio)),
-  _App(
-    'Brauzer',
-    Icons.public_rounded,
-    const [Color(0xFF00C6FF), Color(0xFF0072FF)],
-    (_) => TvServices.instance.openApp('https://www.google.com/', 'Brauzer'),
-  ),
+  ], openRadio),
+  _App('AI brauzer', Icons.public_rounded, const [
+    Color(0xFF00C6FF),
+    Color(0xFF0072FF),
+  ], openBrowser),
   // TV qutisi / stik va Android telefondagi barcha ilovalar.
   if (Platform.isAndroid)
     _App('Ilovalar', Icons.apps_rounded, const [
@@ -257,43 +309,55 @@ class _WidgetsPage extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(110, 52, 90, 26),
         child: Column(
           children: [
-            const _TopBar(),
+            const Entrance(child: _TopBar()),
             const Spacer(),
-            SizedBox(
-              height: 330,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(
-                    width: 300,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(child: _RecentCard()),
-                        SizedBox(height: 22),
-                        Expanded(child: _WeatherCard()),
-                      ],
+            Entrance(
+              delay: const Duration(milliseconds: 120),
+              child: SizedBox(
+                height: 330,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(
+                      width: 300,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(child: _RecentCard()),
+                          SizedBox(height: 22),
+                          Expanded(child: _WeatherCard()),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 28),
-                  Expanded(child: _HeroCard(focusNode: firstFocus)),
-                  const SizedBox(width: 28),
-                  const SizedBox(
-                    width: 180,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(child: _ContinueCard()),
-                        SizedBox(height: 22),
-                        Expanded(child: _RemoteCard()),
-                      ],
+                    const SizedBox(width: 28),
+                    Expanded(child: _HeroCard(focusNode: firstFocus)),
+                    const SizedBox(width: 28),
+                    const SizedBox(
+                      width: 180,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(child: _ContinueCard()),
+                          SizedBox(height: 22),
+                          Expanded(child: _RemoteCard()),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             const Spacer(),
-            const _Dock(),
+            const Entrance(
+              delay: Duration(milliseconds: 260),
+              child: _SitesRow(),
+            ),
+            const SizedBox(height: 18),
+            const Entrance(
+              delay: Duration(milliseconds: 380),
+              offset: 44,
+              child: _Dock(),
+            ),
           ],
         ),
       ),
@@ -971,12 +1035,25 @@ class _DockIconState extends State<_DockIcon> {
               SizedBox(width: 60, height: 60, child: widget.child),
         ),
         const SizedBox(height: 6),
-        AnimatedOpacity(
-          opacity: _f ? 1 : 0,
-          duration: const Duration(milliseconds: 150),
-          child: Text(
-            widget.label,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        // Nom tugma kengligini oshirmasin (dok ekranga sig‘sin).
+        SizedBox(
+          width: 60,
+          height: 17,
+          child: OverflowBox(
+            maxWidth: 160,
+            child: AnimatedOpacity(
+              opacity: _f ? 1 : 0,
+              duration: const Duration(milliseconds: 150),
+              child: Text(
+                widget.label,
+                maxLines: 1,
+                softWrap: false,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
           ),
         ),
       ],
@@ -994,6 +1071,7 @@ class _Tile {
     required this.open,
     this.item,
     this.progress,
+    this.colors,
   });
   final String title;
   final String subtitle;
@@ -1001,6 +1079,9 @@ class _Tile {
   final void Function(BuildContext) open;
   final MediaItem? item;
   final double? progress;
+
+  /// Kino sayti: brend ranglari va nomi (rasm o‘rniga).
+  final List<Color>? colors;
 }
 
 class _MediaPage extends StatefulWidget {
@@ -1039,8 +1120,29 @@ class _MediaPageState extends State<_MediaPage> {
       title: 'YouTube',
       subtitle: 'Videolar va kliplar',
       icon: Icons.smart_display_rounded,
-      open: (_) =>
-          TvServices.instance.openApp('https://www.youtube.com/', 'YouTube'),
+      open: (_) => TvServices.instance.openYoutube(''),
+    ),
+    for (final site in TvStore.instance.sites.value)
+      _Tile(
+        title: site.name,
+        subtitle: site.url.isEmpty
+            ? 'Kino sayti — manzilini kiriting'
+            : 'Kino sayti · ${site.url.replaceFirst(RegExp(r'^https?://(www\.)?'), '').replaceFirst(RegExp(r'/$'), '')}',
+        icon: Icons.local_movies_rounded,
+        colors: site.colors,
+        open: (c) => openSiteTile(c, site),
+      ),
+    _Tile(
+      title: 'Video pleyer',
+      subtitle: 'Kompyuter, telefon yoki havola',
+      icon: Icons.play_circle_fill_rounded,
+      open: openPlayerHub,
+    ),
+    _Tile(
+      title: 'Yordamchi',
+      subtitle: 'AI: savol bering yoki buyruq ayting',
+      icon: Icons.auto_awesome_rounded,
+      open: openAssistant,
     ),
     _Tile(
       title: 'Filmlar',
@@ -1049,10 +1151,10 @@ class _MediaPageState extends State<_MediaPage> {
       open: (c) => openFiles(c, MediaKind.video),
     ),
     _Tile(
-      title: 'Musiqa',
-      subtitle: 'Qo‘shiqlaringiz',
-      icon: Icons.album_rounded,
-      open: (c) => openFiles(c, MediaKind.audio),
+      title: 'Radio',
+      subtitle: 'O‘zbek, rus va dunyo radiolari — jonli',
+      icon: Icons.radio_rounded,
+      open: openRadio,
     ),
     _Tile(
       title: 'Rasmlar',
@@ -1061,11 +1163,10 @@ class _MediaPageState extends State<_MediaPage> {
       open: (c) => openFiles(c, MediaKind.image),
     ),
     _Tile(
-      title: 'Brauzer',
-      subtitle: 'Istalgan sayt',
+      title: 'AI brauzer',
+      subtitle: 'Istalgan sayt — AI qisqacha tushuntiradi',
       icon: Icons.public_rounded,
-      open: (_) =>
-          TvServices.instance.openApp('https://www.google.com/', 'Brauzer'),
+      open: openBrowser,
     ),
   ];
 
@@ -1259,13 +1360,15 @@ class _GameCardState extends State<_GameCard> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(
-              child: ArtBox(
-                seed: t.title,
-                icon: t.icon,
-                image: item == null ? null : imageFor(item, width: 400),
-                cover: item?.kind == MediaKind.image,
-                iconSize: 54,
-              ),
+              child: t.colors != null && t.colors!.length == 2
+                  ? _BrandArt(name: t.title, colors: t.colors!)
+                  : ArtBox(
+                      seed: t.title,
+                      icon: t.icon,
+                      image: item == null ? null : imageFor(item, width: 400),
+                      cover: item?.kind == MediaKind.image,
+                      iconSize: 54,
+                    ),
             ),
             if (_f)
               Container(
@@ -1401,6 +1504,138 @@ class _IconBar extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/* ---------------- Kino saytlari ---------------- */
+
+/// Kino sayti “logotipi”: brend ranglari va nomi.
+class _BrandArt extends StatelessWidget {
+  const _BrandArt({
+    required this.name,
+    required this.colors,
+    this.fontSize = 30,
+  });
+  final String name;
+  final List<Color> colors;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: colors,
+        ),
+      ),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: FittedBox(
+            child: Text(
+              name,
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5,
+                shadows: const [Shadow(color: Colors.black38, blurRadius: 12)],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Bosh ekrandagi kino saytlari qatori (ivi, Uzmovi, iDub, Kinopoisk…).
+class _SitesRow extends StatelessWidget {
+  const _SitesRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<List<Site>>(
+      valueListenable: TvStore.instance.sites,
+      builder: (context, sites, _) => SizedBox(
+        height: 70,
+        child: Row(
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Text(
+                'Kino',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white.withValues(alpha: 0.6),
+                ),
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                clipBehavior: Clip.none,
+                child: Row(
+                  children: [
+                    for (final site in sites)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 14),
+                        child: TvFocusable(
+                          radius: 16,
+                          scale: 1.1,
+                          onTap: () => openSiteTile(context, site),
+                          builder: (context, f) => SizedBox(
+                            width: 128,
+                            height: 58,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                _BrandArt(
+                                  name: site.name,
+                                  colors: site.colors.length == 2
+                                      ? site.colors
+                                      : const [
+                                          Color(0xFF475569),
+                                          Color(0xFF1E293B),
+                                        ],
+                                  fontSize: 22,
+                                ),
+                                if (site.url.isEmpty)
+                                  const Positioned(
+                                    right: 6,
+                                    top: 4,
+                                    child: Icon(Icons.edit_rounded, size: 14),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    TvFocusable(
+                      radius: 16,
+                      scale: 1.1,
+                      onTap: () => addSiteTile(context),
+                      builder: (context, f) => Container(
+                        width: 58,
+                        height: 58,
+                        color: Colors.white.withValues(alpha: f ? 0.9 : 0.12),
+                        child: Icon(
+                          Icons.add_rounded,
+                          color: f ? Colors.black : Colors.white,
+                          size: 30,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

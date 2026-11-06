@@ -33,6 +33,9 @@ class RemoteServer {
     required this.onMedia,
     this.uploadDir,
     this.onUpload,
+    this.onAsk,
+    this.onListen,
+    this.onPointer,
     this.port = defaultPort,
   });
 
@@ -48,6 +51,15 @@ class RemoteServer {
 
   /// Fayl yuborildi: [index] — nechanchisi, [count] — jami nechta.
   final void Function(MediaItem item, int index, int count)? onUpload;
+
+  /// Pult mikrofonidan (yoki yozib) AI yordamchiga savol.
+  final void Function(String text)? onAsk;
+
+  /// Mikrofon holati: start / partial (eshitilgan so‘zlar) / cancel / error.
+  final void Function(String phase, String text)? onListen;
+
+  /// Sensorli panel sichqoncha rejimida: kursorni surish.
+  final void Function(double dx, double dy)? onPointer;
   final int port;
 
   HttpServer? _server;
@@ -243,6 +255,23 @@ class RemoteServer {
       case 'text':
         final v = m['v'];
         if (v is String) onText(v);
+      case 'ask':
+        final v = m['v'];
+        if (v is String && v.trim().isNotEmpty) onAsk?.call(v.trim());
+      case 'listen':
+        final phase = m['phase'];
+        if (phase is String) {
+          final v = m['v'];
+          onListen?.call(phase, v is String ? v : '');
+        }
+      case 'move':
+        final dx = m['dx'], dy = m['dy'];
+        if (dx is num && dy is num) {
+          onPointer?.call(
+            dx.toDouble().clamp(-400, 400),
+            dy.toDouble().clamp(-400, 400),
+          );
+        }
       case 'media':
         // Fayl yo‘llari faqat shu qurilmaning o‘zidan qabul qilinadi.
         if (!local || m['items'] is! List) return;

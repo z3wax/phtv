@@ -22,6 +22,7 @@ class LiveScreen extends StatefulWidget {
 class _LiveScreenState extends State<LiveScreen> {
   late String _group = widget.favoritesOnly ? _favs : _all;
   bool _loading = false;
+  bool _hdOnly = false;
   final _firstChannel = FocusNode(debugLabel: 'firstChannel');
 
   @override
@@ -53,6 +54,118 @@ class _LiveScreenState extends State<LiveScreen> {
     }
   }
 
+  /// Barcha tanlangan to‘plamlar: O‘zbekiston, Kino, Bolalar, Sport…
+  Future<void> _loadPacks([Set<String>? ids]) async {
+    if (_loading) return;
+    setState(() => _loading = true);
+    TvServices.instance.showToast('Kanallar yuklanmoqda…');
+    try {
+      final n = await TvStore.instance.loadPacks(ids: ids);
+      TvServices.instance.showToast(
+        n > 0
+            ? '$n ta kanal yuklandi'
+            : 'Yuklab bo‘lmadi — internetni tekshiring',
+      );
+      if (n > 0 && mounted) {
+        setState(() => _group = _all);
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _firstChannel.requestFocus(),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _choosePacks() async {
+    final chosen = {...TvStore.instance.selectedPacks};
+    final names = <String, List<ChannelPack>>{};
+    for (final p in channelPacks) {
+      names.putIfAbsent(p.name, () => []).add(p);
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          backgroundColor: const Color(0xFF15161C),
+          title: const Text('Kanal to‘plamlari'),
+          content: SizedBox(
+            width: 560,
+            height: 430,
+            child: ListView(
+              children: [
+                for (final e in names.entries)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: TvFocusable(
+                      radius: 12,
+                      scale: 1.02,
+                      autofocus: e.key == names.keys.first,
+                      onTap: () => setLocal(() {
+                        final on = e.value.every((p) => chosen.contains(p.id));
+                        for (final p in e.value) {
+                          on ? chosen.remove(p.id) : chosen.add(p.id);
+                        }
+                      }),
+                      builder: (context, f) {
+                        final on = e.value.every((p) => chosen.contains(p.id));
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          color: f
+                              ? Colors.white
+                              : Colors.white.withValues(alpha: 0.06),
+                          child: Row(
+                            children: [
+                              Icon(
+                                on
+                                    ? Icons.check_circle_rounded
+                                    : Icons.circle_outlined,
+                                color: f
+                                    ? Colors.black
+                                    : (on
+                                          ? const Color(0xFF34C759)
+                                          : Colors.white54),
+                              ),
+                              const SizedBox(width: 14),
+                              Text(
+                                e.key,
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w600,
+                                  color: f ? Colors.black : Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TvButton(
+              icon: Icons.close_rounded,
+              label: 'Bekor',
+              onTap: () => Navigator.pop(ctx, false),
+            ),
+            TvButton(
+              icon: Icons.download_rounded,
+              label: 'Yuklash',
+              primary: true,
+              onTap: () => Navigator.pop(ctx, true),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok == true && chosen.isNotEmpty) await _loadPacks(chosen);
+  }
+
   void _askUrl() {
     TvServices.instance.editText(
       context,
@@ -81,11 +194,14 @@ class _LiveScreenState extends State<LiveScreen> {
                 _favs,
                 ...{for (final c in channels) c.group},
               ];
-              final list = switch (_group) {
+              final all = switch (_group) {
                 _all => channels,
                 _favs => store.favorites.value,
                 final g => channels.where((c) => c.group == g).toList(),
               };
+              final list = _hdOnly
+                  ? all.where((c) => c.quality >= 720).toList()
+                  : all;
               return Column(
                 children: [
                   TvHeader(
@@ -106,13 +222,20 @@ class _LiveScreenState extends State<LiveScreen> {
                           ),
                         ),
                         TvButton(
+                          icon: _hdOnly ? Icons.hd_rounded : Icons.hd_outlined,
+                          label: _hdOnly ? 'Faqat HD' : 'Hammasi',
+                          primary: _hdOnly,
+                          onTap: () => setState(() => _hdOnly = !_hdOnly),
+                        ),
+                        TvButton(
+                          icon: Icons.layers_rounded,
+                          label: 'To‘plamlar',
+                          onTap: _choosePacks,
+                        ),
+                        TvButton(
                           icon: Icons.refresh_rounded,
                           label: 'Yangilash',
-                          onTap: () => _load(
-                            store.settings.value.playlistUrl.isEmpty
-                                ? uzbekPlaylistUrl
-                                : store.settings.value.playlistUrl,
-                          ),
+                          onTap: _loadPacks,
                         ),
                         TvButton(
                           icon: Icons.link_rounded,
@@ -127,7 +250,7 @@ class _LiveScreenState extends State<LiveScreen> {
                     child: channels.isEmpty && _group != _favs
                         ? _Empty(
                             loading: _loading,
-                            onDefault: () => _load(uzbekPlaylistUrl),
+                            onDefault: _loadPacks,
                             onUrl: _askUrl,
                           )
                         : Row(
@@ -275,6 +398,28 @@ class _ChannelCard extends StatelessWidget {
               ),
             ),
           ),
+          if (item.qualityLabel.isNotEmpty)
+            Positioned(
+              top: 8,
+              left: 10,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: item.quality >= 1080
+                      ? const Color(0xFFFFD60A)
+                      : Colors.white.withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  item.qualityLabel,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+            ),
           if (favorite)
             const Positioned(
               top: 8,
@@ -329,7 +474,7 @@ class _Empty extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'O‘zbekistonning ochiq kanallarini qo‘shing yoki o‘z IPTV pleylistingiz (M3U) manzilini kiriting.',
+            '1000+ ochiq kanal: O‘zbekiston, kino, seriallar, bolalar, sport, musiqa, rus tilida — yoki o‘z IPTV pleylistingiz (M3U).',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 19,

@@ -2,6 +2,9 @@
     <!-- Kanallar, ob-havo va pult serveri uchun. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- Pultdagi mikrofon: AI yordamchiga ovoz bilan savol. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-feature android:name="android.hardware.microphone" android:required="false"/>
     <!-- Smart (Android TV) televizorga ham o‘rnatiladi: sensorli ekran shart emas. -->
     <uses-feature android:name="android.software.leanback" android:required="false"/>
     <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
@@ -66,6 +69,14 @@
         <intent>
             <action android:name="android.intent.action.MAIN"/>
             <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
+        </intent>
+        <!-- Ovozni tanish xizmati (Google). -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
+        </intent>
+        <!-- Javobni ovoz chiqarib aytish (TTS). -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
         </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>

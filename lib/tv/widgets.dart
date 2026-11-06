@@ -5,6 +5,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import 'motion.dart';
+
 import 'model.dart';
 
 const uzMonths = [
@@ -106,7 +108,30 @@ class _TvFocusableState extends State<TvFocusable> {
             ),
             child: ClipRRect(
               borderRadius: r,
-              child: widget.builder(context, _focused),
+              child: Stack(
+                children: [
+                  widget.builder(context, _focused),
+                  // Tanlanganda yuqori chap burchakdan yengil yaltirash.
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: AnimatedOpacity(
+                        opacity: _focused && widget.ring ? 1 : 0,
+                        duration: const Duration(milliseconds: 220),
+                        child: const DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0x2EFFFFFF), Color(0x00FFFFFF)],
+                              stops: [0, 0.55],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -294,7 +319,9 @@ class Glass extends StatelessWidget {
     required this.child,
     this.radius = 28,
     this.padding = const EdgeInsets.all(12),
-    this.blur = true,
+    // Xiralashtirish (BackdropFilter) harakatli fon ustida kuchsiz
+    // kompyuter va TV qutilarida og‘ir — odatda o‘chiq.
+    this.blur = false,
   });
   final Widget child;
   final double radius;
@@ -306,9 +333,23 @@ class Glass extends StatelessWidget {
     final box = Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.white.withValues(alpha: 0.16),
+            Colors.white.withValues(alpha: 0.07),
+          ],
+        ),
         borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x40000000),
+            blurRadius: 30,
+            offset: Offset(0, 12),
+          ),
+        ],
       ),
       child: child,
     );
@@ -379,41 +420,19 @@ class TvBackdrop extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          const Positioned(
-            left: -200,
-            top: -160,
-            child: _Glow(color: Color(0xFFB0203F), size: 620),
-          ),
-          const Positioned(
-            right: -220,
-            bottom: -260,
-            child: _Glow(color: Color(0xFF145C8A), size: 720),
+          // Sekin suzuvchi yorug‘liklar — fon “tirik” ko‘rinadi.
+          const DriftingGlows(
+            glows: [
+              (Color(0xFFB0203F), 640, Alignment(-1.1, -1.1)),
+              (Color(0xFF145C8A), 760, Alignment(1.15, 1.2)),
+              (Color(0xFF6D28D9), 520, Alignment(0.6, -0.9)),
+            ],
           ),
           child,
         ],
       ),
     );
   }
-}
-
-class _Glow extends StatelessWidget {
-  const _Glow({required this.color, required this.size});
-  final Color color;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) => IgnorePointer(
-    child: Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: RadialGradient(
-          colors: [color.withValues(alpha: 0.55), Colors.transparent],
-        ),
-      ),
-    ),
-  );
 }
 
 /// Ixcham tugma (ikonka + yozuv).

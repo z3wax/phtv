@@ -95,6 +95,26 @@ class NativeBridge {
     ];
   }
 
+  /// Android: media ovozi (volUp / volDown / mute), ekranda ovoz paneli bilan.
+  static Future<void> volume(String action) =>
+      _call<bool>('volume', {'action': action});
+
+  /// Ubuntu: televizor ekranining joyi va o‘lchami [x, y, kenglik, balandlik].
+  static Future<List<int>?> tvGeometry() async {
+    final r = await _call<List<Object?>>('tvGeometry');
+    if (r == null || r.length != 4) return null;
+    final v = [for (final e in r) e is int ? e : 0];
+    return v[2] > 0 && v[3] > 0 ? v : null;
+  }
+
+  /// Ubuntu: Telefon TV oynasini yana oldinga chiqarish.
+  static Future<void> present() => _call<bool>('present');
+
+  /// Mac: ichki brauzerga klaviatura tugmasi (up, down, left, right, enter,
+  /// escape, space).
+  static Future<bool> sendKey(String key) async =>
+      await _call<bool>('sendKey', {'key': key}) ?? false;
+
   static Future<bool> launchApp(String package) async =>
       await _call<bool>('launchApp', {'package': package}) ?? false;
 }

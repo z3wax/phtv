@@ -104,52 +104,58 @@ class WeatherService {
 
   Future<void> refresh() async {
     final city = cities[(_city ?? 0).clamp(0, cities.length - 1)];
-    final url = Uri.parse(
-      'https://api.open-meteo.com/v1/forecast?latitude=${city.lat}'
-      '&longitude=${city.lon}&current=temperature_2m,weather_code'
-      '&hourly=temperature_2m,weather_code'
-      '&daily=temperature_2m_max,temperature_2m_min'
-      '&timezone=auto&forecast_days=2',
-    );
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 10);
-    try {
-      final res = await (await client.getUrl(
-        url,
-      )).close().timeout(const Duration(seconds: 20));
-      if (res.statusCode != 200) return;
-      final j = jsonDecode(await res.transform(utf8.decoder).join()) as Map;
-      final cur = j['current'] as Map;
-      final hourly = j['hourly'] as Map;
-      final daily = j['daily'] as Map;
-      final now = DateTime.parse(cur['time'] as String);
-      final times = (hourly['time'] as List).cast<String>();
-      final temps = (hourly['temperature_2m'] as List);
-      final codes = (hourly['weather_code'] as List);
-      final hours = <HourWeather>[];
-      for (var i = 0; i < times.length && hours.length < 6; i++) {
-        final t = DateTime.parse(times[i]);
-        if (t.isBefore(now.subtract(const Duration(minutes: 59)))) continue;
-        hours.add(
-          HourWeather(
-            t.hour,
-            (temps[i] as num).toDouble(),
-            (codes[i] as num).toInt(),
-          ),
-        );
-      }
-      weather.value = Weather(
-        city: city.name,
-        temp: (cur['temperature_2m'] as num).toDouble(),
-        code: (cur['weather_code'] as num).toInt(),
-        max: ((daily['temperature_2m_max'] as List).first as num).toDouble(),
-        min: ((daily['temperature_2m_min'] as List).first as num).toDouble(),
-        hours: hours,
+    final w = await fetchWeather(city);
+    // Internet yo‘q — eski ma’lumot qoladi.
+    if (w != null) weather.value = w;
+  }
+}
+
+/// Open-Meteo’dan bitta shahar ob-havosi (xato bo‘lsa — null).
+Future<Weather?> fetchWeather(City city) async {
+  final url = Uri.parse(
+    'https://api.open-meteo.com/v1/forecast?latitude=${city.lat}'
+    '&longitude=${city.lon}&current=temperature_2m,weather_code'
+    '&hourly=temperature_2m,weather_code'
+    '&daily=temperature_2m_max,temperature_2m_min'
+    '&timezone=auto&forecast_days=2',
+  );
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+  try {
+    final res = await (await client.getUrl(
+      url,
+    )).close().timeout(const Duration(seconds: 20));
+    if (res.statusCode != 200) return null;
+    final j = jsonDecode(await res.transform(utf8.decoder).join()) as Map;
+    final cur = j['current'] as Map;
+    final hourly = j['hourly'] as Map;
+    final daily = j['daily'] as Map;
+    final now = DateTime.parse(cur['time'] as String);
+    final times = (hourly['time'] as List).cast<String>();
+    final temps = (hourly['temperature_2m'] as List);
+    final codes = (hourly['weather_code'] as List);
+    final hours = <HourWeather>[];
+    for (var i = 0; i < times.length && hours.length < 6; i++) {
+      final t = DateTime.parse(times[i]);
+      if (t.isBefore(now.subtract(const Duration(minutes: 59)))) continue;
+      hours.add(
+        HourWeather(
+          t.hour,
+          (temps[i] as num).toDouble(),
+          (codes[i] as num).toInt(),
+        ),
       );
-    } catch (_) {
-      // Internet yo‘q — eski ma’lumot qoladi.
-    } finally {
-      client.close(force: true);
     }
+    return Weather(
+      city: city.name,
+      temp: (cur['temperature_2m'] as num).toDouble(),
+      code: (cur['weather_code'] as num).toInt(),
+      max: ((daily['temperature_2m_max'] as List).first as num).toDouble(),
+      min: ((daily['temperature_2m_min'] as List).first as num).toDouble(),
+      hours: hours,
+    );
+  } catch (_) {
+    return null;
+  } finally {
+    client.close(force: true);
   }
 }

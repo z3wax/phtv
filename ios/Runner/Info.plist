@@ -54,6 +54,10 @@
 	<string>Boshqa telefonni televizor pulti sifatida ulash uchun.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Rasm va videolaringizni televizorda ko‘rsatish uchun.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Pultdagi mikrofon: AI yordamchiga ovoz bilan savol berish uchun.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Aytgan gapingizni matnga aylantirib, televizorga buyruq yuborish uchun.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Televizordagi QR kodni skanerlab, pultni ulash uchun.</string>
 </dict>

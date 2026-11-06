@@ -139,4 +139,41 @@ void main() {
     expect(TvInput.commandForKey(down(LogicalKeyboardKey.channelUp)), Cmd.next);
     expect(TvInput.commandForKey(down(LogicalKeyboardKey.keyQ)), isNull);
   });
+
+  testWidgets(
+    'ekrandan Home bilan qaytgach pult ishlayveradi (fokus tiklanadi)',
+    (tester) async {
+      await pumpTv(tester, const Size(1280, 720));
+      final input = TvInput.instance;
+      // Markaziy karta → Jonli TV.
+      input.send(Cmd.ok);
+      await tester.pumpAndSettle();
+      expect(find.text('Kanallar hali qo‘shilmagan'), findsOneWidget);
+      // Fokus yo‘qolgan holat (film tugagach Home bosilgandek).
+      FocusManager.instance.primaryFocus?.unfocus();
+      input.send(Cmd.home);
+      await tester.pumpAndSettle();
+      expect(find.text('Kanallar hali qo‘shilmagan'), findsNothing);
+      expect(focusedText(), isNotNull, reason: 'bosh ekranda tugma tanlangan');
+      // Pult tugmalari yana ishlaydi.
+      final before = focusedText();
+      input.send(Cmd.left);
+      await tester.pumpAndSettle();
+      expect(focusedText(), isNot(before));
+      input.send(Cmd.ok);
+      await tester.pumpAndSettle();
+      expect(find.byType(TvApp), findsOneWidget);
+    },
+  );
+
+  testWidgets('fokus butunlay yo‘qolsa ham birinchi bosish uni tiklaydi', (
+    tester,
+  ) async {
+    await pumpTv(tester, const Size(1280, 720));
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pump();
+    TvInput.instance.send(Cmd.right);
+    await tester.pumpAndSettle();
+    expect(focusedText(), isNotNull);
+  });
 }

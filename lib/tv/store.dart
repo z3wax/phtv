@@ -1,11 +1,15 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'dart:ui' show Color;
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'assistant/ai.dart';
 import 'm3u.dart';
 import 'model.dart';
+import 'sites.dart';
 
 @immutable
 class TvSettings {
@@ -52,6 +56,14 @@ class TvStore {
   final history = ValueNotifier<List<MediaItem>>(const []);
   final favorites = ValueNotifier<List<MediaItem>>(const []);
   final library = ValueNotifier<List<MediaItem>>(const []);
+
+  /// AI yordamchi: bepul xizmat, kalit, ovozli javob.
+  final assistant = ValueNotifier<AiConfig>(const AiConfig());
+
+  /// Bosh ekrandagi kino saytlari (manzillari o‘zgartirilgan va qo‘shilganlari bilan).
+  final sites = ValueNotifier<List<Site>>(defaultSites);
+  Map<String, String> _siteUrls = {};
+  List<Site> _customSites = [];
 
   /// Boshqa telefonlar pult bo‘lib ulanishi uchun PIN.
   String remoteKey = '';
@@ -104,7 +116,30 @@ class TvStore {
     library.value = _items(await _getJson('library'));
     final playlist = await _getJson('playlist');
     if (playlist is String && playlist.isNotEmpty) {
-      channels.value = parseM3u(playlist);
+      _applyChannels(parseM3u(playlist));
+    }
+    final packs = await _getJson('packs');
+    if (packs is List) selectedPacks = {for (final p in packs) '$p'};
+    final updated = await _getJson('channelsUpdated');
+    if (updated is int) channelsUpdated = updated;
+    assistant.value = AiConfig.fromJson(await _getJson('assistant'));
+    final siteJson = await _getJson('sites');
+    if (siteJson is Map) {
+      final urls = siteJson['urls'];
+      if (urls is Map) {
+        _siteUrls = {
+          for (final e in urls.entries)
+            if (e.value is String) '${e.key}': e.value as String,
+        };
+      }
+      final custom = siteJson['custom'];
+      if (custom is List) {
+        _customSites = [
+          for (final e in custom)
+            if (Site.fromJson(e) case final site?) site,
+        ];
+      }
+      _publishSites();
     }
     final key = await _getJson('remoteKey');
     remoteKey = key is String && key.length == 4
@@ -113,19 +148,143 @@ class TvStore {
     if (key != remoteKey) await _set('remoteKey', remoteKey);
   }
 
+  void updateAssistant(AiConfig c) {
+    assistant.value = c;
+    _set('assistant', c.toJson());
+  }
+
+  void _publishSites() {
+    sites.value = [
+      for (final s in defaultSites)
+        _siteUrls.containsKey(s.id) ? s.withUrl(_siteUrls[s.id]!) : s,
+      ..._customSites,
+    ];
+  }
+
+  void _saveSites() {
+    _publishSites();
+    _set('sites', {
+      'urls': _siteUrls,
+      'custom': [for (final s in _customSites) s.toJson()],
+    });
+  }
+
+  /// Sayt manzilini o‘zgartirish (masalan, iDub’ning manzilini kiritish).
+  void setSiteUrl(String id, String url) {
+    final i = _customSites.indexWhere((s) => s.id == id);
+    if (i >= 0) {
+      _customSites[i] = _customSites[i].withUrl(url);
+    } else {
+      _siteUrls = {..._siteUrls, id: url};
+    }
+    _saveSites();
+  }
+
+  Site addSite(String name, String url) {
+    final palette = [
+      [0xFF14B8A6, 0xFF134E4A],
+      [0xFFEC4899, 0xFF831843],
+      [0xFF84CC16, 0xFF365314],
+      [0xFF6366F1, 0xFF1E1B4B],
+    ][_customSites.length % 4];
+    final site = Site(
+      id: 'c${DateTime.now().millisecondsSinceEpoch}',
+      name: name,
+      url: url,
+      colors: [Color(palette[0]), Color(palette[1])],
+      custom: true,
+    );
+    _customSites = [..._customSites, site];
+    _saveSites();
+    return site;
+  }
+
+  void resetSites() {
+    _siteUrls = {};
+    _customSites = [];
+    _saveSites();
+  }
+
+  void removeSite(String id) {
+    _customSites = _customSites.where((s) => s.id != id).toList();
+    _saveSites();
+  }
+
   void updateSettings(TvSettings s) {
     settings.value = s;
     _set('settings', s.toJson());
   }
 
+  /// Bir xil kanalning zaxira manbalari (asosiy manba → boshqalari).
+  Map<String, List<String>> alternates = const {};
+
+  /// Tanlangan kanal to‘plamlari (O‘zbekiston, Kino, Bolalar…).
+  Set<String> selectedPacks = {
+    for (final p in channelPacks)
+      if (p.byDefault) p.id,
+  };
+
+  /// Kanallar oxirgi marta yangilangan vaqt (ms).
+  int channelsUpdated = 0;
+
+  List<String> alternatesFor(String source) => alternates[source] ?? const [];
+
+  int _applyChannels(List<MediaItem> raw) {
+    final r = organizeChannels(raw);
+    alternates = r.alternates;
+    channels.value = r.channels;
+    return r.channels.length;
+  }
+
   /// Pleylistni saqlaydi va kanallar sonini qaytaradi.
   Future<int> setPlaylist(String text, {String? url}) async {
-    final list = parseM3u(text);
-    if (list.isEmpty) return 0;
-    channels.value = list;
+    final raw = parseM3u(text);
+    if (raw.isEmpty) return 0;
+    final n = _applyChannels(raw);
     await _set('playlist', text);
     if (url != null) updateSettings(settings.value.copyWith(playlistUrl: url));
-    return list.length;
+    return n;
+  }
+
+  /// Tanlangan to‘plamlardagi barcha ochiq kanallarni yuklaydi (bir vaqtda).
+  /// Ba’zi ro‘yxat ochilmasa ham qolganlari yuklanadi. [extraUrl] —
+  /// foydalanuvchining o‘z pleylisti (bo‘lsa, boshida turadi).
+  Future<int> loadPacks({
+    Set<String>? ids,
+    String? extraUrl,
+    Future<String> Function(String url) fetch = fetchText,
+  }) async {
+    final chosen = ids ?? selectedPacks;
+    final packs = channelPacks.where((p) => chosen.contains(p.id)).toList();
+    final extra = extraUrl ?? settings.value.playlistUrl;
+    final results = await Future.wait([
+      if (extra.isNotEmpty)
+        fetch(extra).then(parseM3u).catchError((Object _) => <MediaItem>[]),
+      for (final p in packs)
+        fetch(p.url)
+            .then(
+              (t) => [
+                for (final c in parseM3u(t))
+                  MediaItem(
+                    title: c.title,
+                    source: c.source,
+                    kind: MediaKind.live,
+                    logo: c.logo,
+                    group: p.name,
+                  ),
+              ],
+            )
+            .catchError((Object _) => <MediaItem>[]),
+    ]);
+    final raw = [for (final r in results) ...r];
+    if (raw.isEmpty) return 0;
+    final n = _applyChannels(raw);
+    selectedPacks = chosen;
+    channelsUpdated = DateTime.now().millisecondsSinceEpoch;
+    await _set('playlist', toM3u(raw));
+    await _set('packs', chosen.toList());
+    await _set('channelsUpdated', channelsUpdated);
+    return n;
   }
 
   Future<int> loadPlaylistFromUrl(String url) async =>
@@ -171,6 +330,10 @@ class TvStore {
       'favorites',
       'library',
       'playlist',
+      'packs',
+      'channelsUpdated',
+      'assistant',
+      'sites',
     ]) {
       try {
         await _prefsOrNull()?.remove(k);
@@ -181,5 +344,11 @@ class TvStore {
     favorites.value = const [];
     library.value = const [];
     channels.value = const [];
+    alternates = const {};
+    channelsUpdated = 0;
+    assistant.value = const AiConfig();
+    _siteUrls = {};
+    _customSites = [];
+    _publishSites();
   }
 }

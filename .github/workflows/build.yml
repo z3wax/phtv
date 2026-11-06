@@ -139,14 +139,46 @@ jobs:
       - run: flutter pub get
       # Universal ilova: Apple Silicon (M1…) va Intel Mac’lar, macOS 10.15+.
       - run: flutter build macos --release
+      - name: Check macOS 10.15 Catalina support and sign
+        run: |
+          app="build/macos/Build/Products/Release/Telefon TV.app"
+          lipo -archs "$app/Contents/MacOS/Telefon TV"
+          echo "LSMinimumSystemVersion: $(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/Contents/Info.plist")"
+          # Intel Mac’dagi Catalina uchun: hech bir qism 10.15 dan yuqori talab qilmasin.
+          bad=0
+          while IFS= read -r -d '' f; do
+            file "$f" | grep -q 'Mach-O' || continue
+            v=$(otool -arch x86_64 -l "$f" 2>/dev/null | awk '/LC_BUILD_VERSION/{b=1} b&&$1=="minos"{print $2; exit} /LC_VERSION_MIN_MACOSX/{m=1} m&&$1=="version"{print $2; exit}')
+            [ -z "$v" ] && continue
+            top=$(printf '%s\n10.15\n' "$v" | sort -V | tail -1)
+            if [ "$top" != "10.15" ]; then echo "::error::$(basename "$f") needs macOS $v"; bad=1; else echo "ok $(basename "$f") $v"; fi
+          done < <(find "$app/Contents" -type f -perm -u+x -print0)
+          [ "$bad" = 0 ]
+          # Butun ilovani qayta imzolash (ad-hoc): Finder / Launchpad’dan ochilishi uchun.
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
       - name: Package the DMG
         run: |
           version=$(grep '^version:' pubspec.yaml | awk '{print $2}' | sed 's/+.*//')
           app="build/macos/Build/Products/Release/Telefon TV.app"
-          lipo -archs "$app/Contents/MacOS/Telefon TV"
           mkdir -p dmg dist
-          cp -R "$app" dmg/
+          ditto "$app" "dmg/Telefon TV.app"
           ln -s /Applications dmg/Applications
+          cat > "dmg/O‘RNATISH — birinchi ochish.txt" <<'TXT'
+          Telefon TV — Mac (macOS 10.15 Catalina va yangilari)
+
+          1. “Telefon TV” belgisini “Applications” papkasiga torting.
+          2. BIRINCHI MARTA: Launchpad emas, Finder → Programmalar (Applications)
+             ichida “Telefon TV” ustida Control tugmasini bosib turib bosing
+             (yoki sichqonchaning o‘ng tugmasi) → “Open / Открыть” → yana “Open”.
+             Ilova Apple App Store’dan emas, shuning uchun macOS bir marta so‘raydi.
+          3. Shundan keyin Launchpad va Dock’dan oddiy ochiladi.
+
+          Agar “shikastlangan” yoki “ochib bo‘lmaydi” desa — Terminal’da bir marta:
+             xattr -cr "/Applications/Telefon TV.app"
+          keyin Launchpad’dan oching.
+          TXT
+          sed -i '' 's/^          //' "dmg/O‘RNATISH — birinchi ochish.txt"
           hdiutil create -volname "Telefon TV" -srcfolder dmg -ov -format UDZO "dist/TelefonTV-$version-macos.dmg"
           ls -la dist
       - uses: actions/upload-artifact@v4
@@ -182,9 +214,11 @@ jobs:
 
           **iPhone:** `-imzosiz.ipa` — o‘z Apple ID bilan imzolab o‘rnatiladi: Ubuntu’da iloader (iloader.app), yoki Sideloadly / AltStore. Bepul Apple ID’da 7 kunda qayta o‘rnatiladi.
 
-          **Mac (HDMI → televizor):** `-macos.dmg` ni oching, “Telefon TV” ni Applications’ga torting. Birinchi ochishda: Tizim sozlamalari → Maxfiylik va xavfsizlik → “Baribir ochish” (yoki Terminal’da `xattr -cr "/Applications/Telefon TV.app"`).
+          **Mac (macOS 10.15 Catalina va yangilari):** `-macos.dmg` ni oching, “Telefon TV” ni Applications’ga torting. Birinchi marta Finder’da ilova ustida Control + bosish → Open → Open (bir marta). Keyin Launchpad’dan oddiy ochiladi. “Shikastlangan” desa — Terminal’da bir marta: `xattr -cr "/Applications/Telefon TV.app"`.
 
-          **Ubuntu kompyuter (HDMI → televizor):** `sudo apt install libmpv2` (22.04 da `libmpv1`), arxivni oching va `./install.sh --autostart`.
+          **Ubuntu kompyuter (HDMI → televizor):** `sudo apt install libmpv2` (22.04 da `libmpv1`), YouTube pult bilan va ovozli javob uchun `sudo apt install xdotool chromium-browser espeak-ng`, arxivni oching va `./install.sh --autostart`.
+
+          **AI yordamchi:** pultdagi 🎤 — gapiring. Kalitsiz darrov ishlaydi; tezroq va aqlliroq bo‘lishi uchun Sozlamalar → AI yordamchi → Google Gemini (aistudio.google.com/apikey) yoki Groq (console.groq.com/keys) bepul kaliti.
 
           Batafsil: README.
           EOF

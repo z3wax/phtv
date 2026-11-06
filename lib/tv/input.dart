@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import '../native.dart';
 
 /// Pultning har bir tugmasi. Telefon pulti, brauzer pulti, Bluetooth pult,
 /// klaviatura va o‘yin pulti — hammasi shu buyruqlarga aylanadi.
@@ -17,6 +21,9 @@ enum Cmd {
   volUp,
   volDown,
   mute,
+
+  /// Yoqish/o‘chirish: uyqu rejimi (qora ekran) ↔ uyg‘otish.
+  power,
 }
 
 typedef CmdHandler = bool Function(Cmd cmd);
@@ -33,16 +40,62 @@ class TextTarget {
   final ValueChanged<String> onSubmit;
 }
 
+/// Qaysi ekran tepada ekanini kuzatadi: orqaga / Home bosilgandan keyin
+/// fokus yo‘qolib, pult “o‘lib” qolmasligi uchun.
+class TvRouteObserver extends NavigatorObserver {
+  Route<dynamic>? top;
+
+  /// Orqaga qaytilganda — ochilgan ekran fokusni qayta olsin.
+  void _changed(Route<dynamic>? r, {bool restore = true}) {
+    top = r;
+    if (!restore) return;
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => TvInput.instance.ensureFocus(),
+    );
+  }
+
+  // Yangi ekran o‘zi tanlaydi (autofocus).
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      _changed(route, restore: false);
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      _changed(previousRoute);
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (route == top) _changed(previousRoute);
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    if (oldRoute == top) _changed(newRoute);
+  }
+}
+
 class TvInput {
   TvInput._();
   static final instance = TvInput._();
 
   final navigatorKey = GlobalKey<NavigatorState>();
+  final routes = TvRouteObserver();
   final _handlers = <CmdHandler>[];
 
   /// Har bir bosishda o‘sadi: pleyer paneli shunga qarab ko‘rinadi.
   final activity = ValueNotifier<int>(0);
   TextTarget? textTarget;
+
+  /// Yoqish/o‘chirish tugmasi (TvApp uyqu ekranini ochadi).
+  VoidCallback? onPower;
+
+  /// Telefondagi sensorli panel sichqoncha bo‘lganda (brauzer kursori).
+  void Function(double dx, double dy)? onPointer;
+
+  void pointer(double dx, double dy) {
+    activity.value++;
+    onPointer?.call(dx, dy);
+  }
 
   /// Ekran o‘z tugmalarini ushlashi uchun (oxirgi qo‘shilgani birinchi).
   void push(CmdHandler h) => _handlers.add(h);
@@ -58,13 +111,47 @@ class TvInput {
 
   void receiveText(String value) => textTarget?.onSubmit(value);
 
+  /// Fokus yo‘q yoki yopilgan ekranda qolgan bo‘lsa — tepadagi ekranning
+  /// avval tanlangan (yoki birinchi) tugmasini tanlaydi. Biror narsa
+  /// tanlangan bo‘lsa — true.
+  bool ensureFocus() {
+    final route = routes.top;
+    if (route is! ModalRoute || !route.isCurrent) return false;
+    final ctx = route.subtreeContext;
+    if (ctx == null || !ctx.mounted) return false;
+    final scope = FocusScope.of(ctx);
+    final primary = FocusManager.instance.primaryFocus;
+    bool usable(FocusNode n) =>
+        n.context != null &&
+        n.context!.mounted &&
+        n.canRequestFocus &&
+        !n.skipTraversal &&
+        n is! FocusScopeNode;
+    if (primary != null &&
+        usable(primary) &&
+        primary.ancestors.contains(scope)) {
+      return false;
+    }
+    final remembered = scope.focusedChild;
+    if (remembered != null && usable(remembered) && remembered != primary) {
+      remembered.requestFocus();
+      return true;
+    }
+    final first = scope.traversalDescendants.where(usable).firstOrNull;
+    if (first == null) return false;
+    first.requestFocus();
+    return true;
+  }
+
   bool moveFocus(TraversalDirection d) {
+    if (ensureFocus()) return true;
     final node = FocusManager.instance.primaryFocus;
     if (node == null) return false;
     return node.focusInDirection(d);
   }
 
   void activate() {
+    if (ensureFocus()) return;
     final ctx = FocusManager.instance.primaryFocus?.context;
     if (ctx != null) Actions.maybeInvoke(ctx, const ActivateIntent());
   }
@@ -85,9 +172,53 @@ class TvInput {
         navigatorKey.currentState?.maybePop();
       case Cmd.home:
         navigatorKey.currentState?.popUntil((r) => r.isFirst);
+      case Cmd.volUp || Cmd.volDown || Cmd.mute:
+        systemVolume(cmd);
+      case Cmd.power:
+        onPower?.call();
       default:
         break;
     }
+  }
+
+  /// Pleyerdan tashqarida ovoz tugmalari — qurilmaning o‘z ovozi
+  /// (Ubuntu: PulseAudio/PipeWire, Mac: tizim ovozi, Android: media ovozi).
+  static Future<void> systemVolume(Cmd cmd) async {
+    try {
+      if (Platform.isLinux) {
+        final arg = switch (cmd) {
+          Cmd.volUp => ['set-sink-volume', '@DEFAULT_SINK@', '+8%'],
+          Cmd.volDown => ['set-sink-volume', '@DEFAULT_SINK@', '-8%'],
+          _ => ['set-sink-mute', '@DEFAULT_SINK@', 'toggle'],
+        };
+        try {
+          await Process.run('pactl', arg);
+        } on ProcessException {
+          await Process.run('amixer', [
+            '-q',
+            'sset',
+            'Master',
+            switch (cmd) {
+              Cmd.volUp => '8%+',
+              Cmd.volDown => '8%-',
+              _ => 'toggle',
+            },
+          ]);
+        }
+      } else if (Platform.isMacOS) {
+        final script = switch (cmd) {
+          Cmd.volUp =>
+            'set volume output volume ((output volume of (get volume settings)) + 8)',
+          Cmd.volDown =>
+            'set volume output volume ((output volume of (get volume settings)) - 8)',
+          _ =>
+            'set volume output muted (not (output muted of (get volume settings)))',
+        };
+        await Process.run('osascript', ['-e', script]);
+      } else if (Platform.isAndroid) {
+        await NativeBridge.volume(cmd.name);
+      }
+    } catch (_) {}
   }
 
   static bool _typing() {

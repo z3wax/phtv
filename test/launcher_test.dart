@@ -79,6 +79,8 @@ void main() {
     await pump(tester, const SettingsScreen());
     expect(find.text('Yoqilganda Telefon TV ochilsin'), findsOneWidget);
     expect(find.text('O‘chiq'), findsOneWidget);
+    await tester.ensureVisible(find.text('Yoqilganda Telefon TV ochilsin'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Yoqilganda Telefon TV ochilsin'));
     await tester.pumpAndSettle();
     expect(home, isTrue);

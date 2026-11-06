@@ -27,6 +27,20 @@ if ! ldconfig -p 2>/dev/null | grep -q 'libmpv\.so'; then
   exit 1
 fi
 
+# Ixtiyoriy, lekin tavsiya: YouTube va saytlar Chrome’da televizorda ochilib,
+# telefondagi pult bilan boshqarilishi uchun (xdotool), AI javobini ovoz
+# chiqarib aytish uchun (espeak-ng).
+missing=""
+command -v xdotool >/dev/null 2>&1 || missing="$missing xdotool"
+command -v espeak-ng >/dev/null 2>&1 || missing="$missing espeak-ng"
+if ! command -v google-chrome >/dev/null 2>&1 && ! command -v chromium >/dev/null 2>&1 \
+  && ! command -v chromium-browser >/dev/null 2>&1; then
+  missing="$missing chromium-browser"
+fi
+if [ -n "$missing" ]; then
+  echo "Tavsiya (YouTube pult bilan, ovozli javob):  sudo apt install$missing"
+fi
+
 rm -rf "$dest"
 mkdir -p "$dest" "$apps" "$icons"
 cp -r "$here/bundle/." "$dest/"

@@ -52,9 +52,14 @@ iPhone ──zaryad simi (USB)──► Mac ──HDMI / USB-C → HDMI──►
   apparat dekoderi ishlaydi, batareya kam sarflanadi. Universal ilova: Apple
   Silicon (M1…M4) va Intel Mac, macOS 10.15 Catalina va yangisi.
 - **Televizor ulanganda** Telefon TV o‘sha ekranni to‘liq egallaydi, Mac
-  ekrani bo‘sh qoladi; HDMI uzilsa — oddiy oynaga qaytadi. Televizorda
-  ko‘rsatayotganda ekran o‘chmaydi, Mac uxlamaydi. Qo‘lda tanlash:
-  `TELEFON_TV_SCREEN=1`.
+  ekrani bo‘sh qoladi; HDMI uzilsa — oddiy oynaga qaytadi. Ilova ochiq ekan
+  ekran o‘chmaydi, qulflanmaydi, ekran saqlovchi chiqmaydi, Mac uxlamaydi.
+  Qo‘lda tanlash: `TELEFON_TV_SCREEN=1`.
+- **Birinchi ochish (Catalina va yangilari):** DMG’dan “Programmalar”ga
+  torting, keyin Finder’da “Telefon TV” ustida **Control + bosish → Open → Open**.
+  Ilova App Store’dan emas, shuning uchun macOS faqat bir marta so‘raydi;
+  keyin Launchpad’dan oddiy ochiladi. “Shikastlangan” desa — Terminal’da bir
+  marta: `xattr -cr "/Applications/Telefon TV.app"`.
 - **Ulash:** HDMI uyasi bor Mac (MacBook Pro 2021+, Mac mini, Mac Studio) —
   oddiy HDMI kabel; boshqalari — USB-C → HDMI kabel; eski Mac — Mini
   DisplayPort → HDMI.
@@ -253,12 +258,32 @@ Samsung telefonlar HDMI ulanganda DeX rejimini ochishi mumkin: bildirishnomadan
   (Open-Meteo, 13 ta shahar), tavsiya etilgan kanal, davom ettirish, pultlar, dok.
 - **Media markazi** (PlayStation uslubi): katta fon, kartalar qatori, ko‘rilgan
   foiz, pastki menyu.
-- **Jonli TV**: O‘zbekistonning ochiq kanallari bir bosishda yoki o‘z M3U
-  pleylistingiz; guruhlar, sevimlilar, ↑↓ bilan kanal almashtirish.
+- **Ochilish**: Apple TV’dagidek “z3wax tv” animatsiyasi; ekranlar orasida
+  silliq o‘tish, fonda suzuvchi yorug‘liklar.
+- **AI yordamchi (ovozli)**: pultdagi 🎤 tugmasini bosib gapiring —
+  “YouTube’da multfilm qo‘y”, “Sevimli TV ni qo‘y”, “ovozni ko‘tar”,
+  “ob-havo qanday”, “ivi’ni och”, istalgan savol. Oddiy buyruqlar internetsiz,
+  darhol; savollar — **bepul AI**: kalitsiz (darrov) yoki Google Gemini /
+  Groq’ning bepul kaliti (Sozlamalar → AI yordamchi). Javob ekranda va ovozda.
+- **Jonli TV**: 1000+ ochiq kanal to‘plamlari — O‘zbekiston, kino, seriallar,
+  bolalar, multfilmlar, sport, musiqa, hujjatli, rus, turk, qozoq tilida;
+  HD / FHD / 4K belgisi, “Faqat HD” filtri, sifatlisi tepada. Manba ishlamasa
+  yoki qotib qolsa — pleyer o‘zi shu kanalning boshqa manbasiga o‘tadi.
+- **Radio**: O‘zbekiston, rus, turk, qozoq va dunyo radiolari (Radio Browser),
+  qidiruv; fayl so‘ramaydi.
+- **Kino saytlari**: ivi, Uzmovi, iDub (manzilini bir marta kiritasiz),
+  Kinopoisk, Okko, MEGOGO, iTV, Netflix va o‘zingiz qo‘shgan saytlar.
+- **Video pleyer**: kompyuterdagi fayl, telefondan yuborish, havola (mp4, m3u8).
 - **Pleyer**: video, HLS jonli efir, musiqa, rasmlar va slayd-shou; to‘xtagan
   joyidan davom etadi.
 - **Fayllar**: telefondagi video, musiqa va rasmlar televizorda.
-- **YouTube va brauzer**: telefondagi ilova ochiladi va televizorda ko‘rinadi.
+- **YouTube**: telefonda — YouTube ilovasi; Mac’da — ichki brauzerda
+  televizor ko‘rinishi; Ubuntu’da — Chrome televizor ekranida (pult ↑↓←→ / OK /
+  Orqaga bilan boshqaradi; `sudo apt install xdotool chromium-browser`).
+- **AI brauzer**: pult kursori, telefondagi panel — sichqoncha; “Qisqacha” —
+  AI sahifani tushuntiradi, “Savol” — sahifa haqida so‘rash.
+- **Pult**: Apple TV pulti shaklida, to‘liq qora — ilovada ham, brauzerda ham.
+  Telefonning ovoz tugmalari televizor ovozini boshqaradi.
 - **Sozlamalar**: ob-havo shahri, ekran chetlari (overscan), pleylist manzili,
   pultlar, tozalash. **Uyqu rejimi** — qora ekran va xira soat.
 - Interfeys 720p, 1080p va 4K televizorda bir xil ko‘rinadi.

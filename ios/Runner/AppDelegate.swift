@@ -1,6 +1,7 @@
 import AVFoundation
 import Flutter
 import ImageIO
+import Speech
 import UIKit
 import UniformTypeIdentifiers
 
@@ -15,6 +16,7 @@ import UniformTypeIdentifiers
   private var phoneChannel: FlutterMethodChannel?
   private var tvChannel: FlutterMethodChannel?
   private var usb: UsbExporter?
+  private var voice: VoiceInput?
 
   override func application(
     _ application: UIApplication,
@@ -24,6 +26,7 @@ import UniformTypeIdentifiers
     if let controller = window?.rootViewController as? FlutterViewController {
       phoneChannel = bindChannel(controller.binaryMessenger)
       usb = UsbExporter(messenger: controller.binaryMessenger, presenter: controller)
+      voice = VoiceInput(messenger: controller.binaryMessenger)
     }
     application.isIdleTimerDisabled = true
     let center = NotificationCenter.default
@@ -311,5 +314,155 @@ final class UsbExporter: NSObject, UIDocumentPickerDelegate {
       .appendingPathComponent("usb_\(UUID().uuidString).jpg")
     try data.write(to: out)
     return out
+  }
+}
+
+/// Pultdagi mikrofon: iPhone’ning o‘z ovoz tanish dvigateli (Speech).
+/// Eshitilayotgan so‘zlar `partial`, tayyor gap `final` bilan yuboriladi;
+/// 1,6 soniya jimlikdan keyin o‘zi tugaydi.
+final class VoiceInput: NSObject {
+  private let channel: FlutterMethodChannel
+  private let engine = AVAudioEngine()
+  private var request: SFSpeechAudioBufferRecognitionRequest?
+  private var task: SFSpeechRecognitionTask?
+  private var recognizer: SFSpeechRecognizer?
+  private var silence: DispatchWorkItem?
+  private var finished = false
+
+  init(messenger: FlutterBinaryMessenger) {
+    channel = FlutterMethodChannel(name: "telefon_tv/voice", binaryMessenger: messenger)
+    super.init()
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else { return }
+      switch call.method {
+      case "available":
+        result(SFSpeechRecognizer() != nil)
+      case "start":
+        let args = call.arguments as? [String: Any]
+        let locales = args?["locales"] as? [String] ?? ["uz-UZ", "ru-RU", "en-US"]
+        self.authorize { ok in
+          if ok { self.start(locales) } else { self.send("error", "permission") }
+        }
+        result(true)
+      case "stop":
+        self.stop()
+        result(true)
+      case "cancel":
+        self.cancel()
+        result(true)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  private func send(_ method: String, _ value: String) {
+    DispatchQueue.main.async { self.channel.invokeMethod(method, arguments: value) }
+  }
+
+  private func authorize(_ done: @escaping (Bool) -> Void) {
+    SFSpeechRecognizer.requestAuthorization { status in
+      guard status == .authorized else {
+        DispatchQueue.main.async { done(false) }
+        return
+      }
+      AVAudioSession.sharedInstance().requestRecordPermission { granted in
+        DispatchQueue.main.async { done(granted) }
+      }
+    }
+  }
+
+  private func start(_ locales: [String]) {
+    cancel()
+    var chosen: SFSpeechRecognizer?
+    var chosenId = ""
+    for id in locales {
+      if let r = SFSpeechRecognizer(locale: Locale(identifier: id)), r.isAvailable {
+        chosen = r
+        chosenId = id
+        break
+      }
+    }
+    guard let recognizer = chosen else {
+      send("error", "language")
+      return
+    }
+    self.recognizer = recognizer
+    let session = AVAudioSession.sharedInstance()
+    do {
+      try session.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
+      try session.setActive(true, options: .notifyOthersOnDeactivation)
+    } catch {
+      send("error", "busy")
+      return
+    }
+    let req = SFSpeechAudioBufferRecognitionRequest()
+    req.shouldReportPartialResults = true
+    request = req
+    let input = engine.inputNode
+    input.removeTap(onBus: 0)
+    input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer, _ in
+      req.append(buffer)
+    }
+    engine.prepare()
+    do {
+      try engine.start()
+    } catch {
+      send("error", "busy")
+      return
+    }
+    finished = false
+    send("ready", chosenId)
+    scheduleSilence(after: 6)
+    task = recognizer.recognitionTask(with: req) { [weak self] result, error in
+      guard let self = self, !self.finished else { return }
+      if let result = result {
+        let text = result.bestTranscription.formattedString
+        if result.isFinal {
+          self.finished = true
+          self.send("final", text)
+          self.teardown()
+        } else {
+          self.send("partial", text)
+          self.scheduleSilence(after: 1.6)
+        }
+      } else if error != nil {
+        self.finished = true
+        self.send("error", "nomatch")
+        self.teardown()
+      }
+    }
+  }
+
+  /// Jimlik: gapirib bo‘lingan deb hisoblaymiz.
+  private func scheduleSilence(after seconds: Double) {
+    silence?.cancel()
+    let work = DispatchWorkItem { [weak self] in self?.stop() }
+    silence = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+  }
+
+  func stop() {
+    silence?.cancel()
+    if engine.isRunning {
+      engine.stop()
+      engine.inputNode.removeTap(onBus: 0)
+    }
+    request?.endAudio()
+  }
+
+  func cancel() {
+    silence?.cancel()
+    task?.cancel()
+    task = nil
+    teardown()
+  }
+
+  private func teardown() {
+    silence?.cancel()
+    if engine.isRunning { engine.stop() }
+    engine.inputNode.removeTap(onBus: 0)
+    request = nil
+    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
   }
 }

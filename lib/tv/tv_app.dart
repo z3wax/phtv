@@ -4,11 +4,16 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'package:path_provider/path_provider.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../native.dart';
 
+import 'assistant/assistant.dart';
+import 'assistant/overlay.dart';
 import 'input.dart';
+import 'motion.dart';
 import 'screens/home_screen.dart';
+import 'screens/sleep_screen.dart';
 import 'server.dart';
 import 'services.dart';
 import 'store.dart';
@@ -45,11 +50,25 @@ class _TvAppState extends State<TvApp> {
   @override
   void initState() {
     super.initState();
+    if (!widget.services) TvMotion.enabled = false;
     final s = TvServices.instance
       ..onTvDisplay = widget.onTvDisplay
       ..useAsRemote = widget.useAsRemote
       ..openUsb = widget.openUsb;
-    TvStore.instance.load();
+    TvStore.instance.load().then((_) {
+      // Kanallar yo‘q yoki 3 kundan eski — orqa fonda yangilaymiz.
+      final store = TvStore.instance;
+      final age = DateTime.now().millisecondsSinceEpoch - store.channelsUpdated;
+      if (widget.services &&
+          (store.channels.value.isEmpty ||
+              age > const Duration(days: 3).inMilliseconds)) {
+        store.loadPacks();
+      }
+    });
+    TvInput.instance.onPower = () {
+      final nav = TvInput.instance.navigatorKey.currentState;
+      nav?.push(MaterialPageRoute<void>(builder: (_) => const SleepScreen()));
+    };
     if (widget.services) {
       final server = RemoteServer(
         keyProvider: () => TvStore.instance.remoteKey,
@@ -58,11 +77,15 @@ class _TvAppState extends State<TvApp> {
         onMedia: s.receiveMedia,
         uploadDir: uploadDirectory,
         onUpload: s.receiveUpload,
+        onAsk: Assistant.instance.ask,
+        onListen: Assistant.instance.listen,
+        onPointer: TvInput.instance.pointer,
       );
       server.clients.addListener(() => s.remotes.value = server.clients.value);
       server.start();
       s.server = _server = server;
       WeatherService.instance.start();
+      _keepAwake();
     }
     // TV qutisida bosh ekran bo‘lganda Home tugmasi — bosh sahifa.
     if (!widget.onTvDisplay) {
@@ -72,8 +95,25 @@ class _TvAppState extends State<TvApp> {
     }
   }
 
+  Timer? _awake;
+
+  /// Ilova ochiq ekan, hech qaysi tizim (Android, iPhone, Mac, Ubuntu)
+  /// ekranni o‘chirmasin, qulflamasin va uxlamasin.
+  void _keepAwake() {
+    Future<void> on() async {
+      try {
+        await WakelockPlus.enable();
+      } catch (_) {}
+    }
+
+    on();
+    // Ba’zi tizimlar uzoq vaqtdan keyin taqiqni bekor qiladi — yangilab turamiz.
+    _awake = Timer.periodic(const Duration(minutes: 4), (_) => on());
+  }
+
   @override
   void dispose() {
+    _awake?.cancel();
     _home?.cancel();
     _server?.stop();
     final s = TvServices.instance;
@@ -90,6 +130,7 @@ class _TvAppState extends State<TvApp> {
       title: 'Telefon TV',
       debugShowCheckedModeBanner: false,
       navigatorKey: TvInput.instance.navigatorKey,
+      navigatorObservers: [TvInput.instance.routes],
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
@@ -99,6 +140,15 @@ class _TvAppState extends State<TvApp> {
         ),
         scaffoldBackgroundColor: Colors.black,
         splashFactory: NoSplash.splashFactory,
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: TvPageTransitions(),
+            TargetPlatform.iOS: TvPageTransitions(),
+            TargetPlatform.macOS: TvPageTransitions(),
+            TargetPlatform.linux: TvPageTransitions(),
+            TargetPlatform.windows: TvPageTransitions(),
+          },
+        ),
       ),
       builder: (context, child) => TvCanvas(child: child ?? const SizedBox()),
       home: const HomeScreen(),
@@ -153,7 +203,10 @@ class TvCanvas extends StatelessWidget {
                         child: Stack(
                           children: [
                             Positioned.fill(child: child),
+                            const Positioned.fill(child: AssistantOverlay()),
                             const _Toast(),
+                            if (TvMotion.enabled)
+                              const Positioned.fill(child: TvSplash()),
                           ],
                         ),
                       ),

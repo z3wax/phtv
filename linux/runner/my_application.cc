@@ -18,6 +18,7 @@ struct _MyApplication {
   // ishlab turadi), televizor (ikkinchi ekran) ulanganda paydo bo‘ladi.
   gboolean background;
   int monitors;
+  FlMethodChannel* channel;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -88,9 +89,10 @@ static void update_visibility(MyApplication* self) {
   if (window == nullptr) return;
   GdkDisplay* display = gtk_widget_get_display(GTK_WIDGET(window));
   const bool tv_connected = gdk_display_get_n_monitors(display) > 1;
+  // Ilova ochiq ekan ekran o‘chmasin va kompyuter uxlamasin (fon rejimida ham).
+  set_awake(self, true);
   if (self->background && !tv_connected) {
     gtk_widget_hide(GTK_WIDGET(window));
-    set_awake(self, false);
     return;
   }
   gtk_widget_show(GTK_WIDGET(window));
@@ -117,6 +119,34 @@ static gboolean poll_monitors_cb(gpointer data) {
     update_visibility(self);
   }
   return G_SOURCE_CONTINUE;
+}
+
+// Dart bilan aloqa: televizor ekranining joyi (Chrome’ni o‘sha ekranda
+// ochish uchun) va Chrome yopilgach oynani yana oldinga chiqarish.
+static void native_method_cb(FlMethodChannel* channel, FlMethodCall* call,
+                             gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  const gchar* method = fl_method_call_get_name(call);
+  g_autoptr(FlMethodResponse) response = nullptr;
+  if (g_strcmp0(method, "tvGeometry") == 0 && self->window != nullptr) {
+    GdkDisplay* display = gtk_widget_get_display(GTK_WIDGET(self->window));
+    GdkMonitor* m = gdk_display_get_monitor(display, pick_monitor(display));
+    GdkRectangle a = {0, 0, 0, 0};
+    if (m != nullptr) gdk_monitor_get_geometry(m, &a);
+    g_autoptr(FlValue) list = fl_value_new_list();
+    fl_value_append_take(list, fl_value_new_int(a.x));
+    fl_value_append_take(list, fl_value_new_int(a.y));
+    fl_value_append_take(list, fl_value_new_int(a.width));
+    fl_value_append_take(list, fl_value_new_int(a.height));
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(list));
+  } else if (g_strcmp0(method, "present") == 0 && self->window != nullptr) {
+    gtk_window_present(self->window);
+    g_autoptr(FlValue) ok = fl_value_new_bool(TRUE);
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(ok));
+  } else {
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  }
+  fl_method_call_respond(call, response, nullptr);
 }
 
 static void window_destroyed_cb(MyApplication* self, GtkWidget* window) {
@@ -187,6 +217,13 @@ static void my_application_activate(GApplication* application) {
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
 
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  self->channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)),
+      "telefon_tv/native", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(self->channel, native_method_cb,
+                                            self, nullptr);
+
   GdkDisplay* display = gtk_widget_get_display(GTK_WIDGET(window));
   g_signal_connect(display, "monitor-added", G_CALLBACK(monitors_changed_cb), self);
   g_signal_connect(display, "monitor-removed", G_CALLBACK(monitors_changed_cb), self);
@@ -239,6 +276,7 @@ static void my_application_shutdown(GApplication* application) {
 static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
+  g_clear_object(&self->channel);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 
@@ -255,6 +293,7 @@ static void my_application_init(MyApplication* self) {
   self->inhibit_cookie = 0;
   self->background = FALSE;
   self->monitors = 0;
+  self->channel = nullptr;
 }
 
 MyApplication* my_application_new() {

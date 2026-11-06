@@ -1,14 +1,18 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
 import '../media_picker.dart';
 import '../native.dart';
+import 'external.dart';
 import 'input.dart';
 import 'model.dart';
+import 'screens/browser_screen.dart';
 import 'screens/files_screen.dart';
 import 'screens/player_screen.dart';
 import 'server.dart';
+import 'sites.dart';
 import 'store.dart';
 
 /// Televizor ekranining umumiy xizmatlari.
@@ -70,8 +74,93 @@ class TvServices {
 
   Future<void> openApp(String url, String name) async {
     showToast('$name ochilmoqda…');
-    if (!await NativeBridge.openUrl(url)) showToast('$name ni ochib bo‘lmadi');
+    if (!await openExternal(url)) showToast('$name ni ochib bo‘lmadi');
   }
+
+  /// Pult ekranida ko‘rinadigan holat (nima ijro etilmoqda, kursor rejimi…).
+  final _state = <String, Object?>{};
+  void updateState(Map<String, Object?> patch) {
+    _state.addAll(patch);
+    _state.removeWhere((_, v) => v == null);
+    server?.setState(Map.of(_state));
+  }
+
+  /// Brauzerdagi kursor: pultdagi sensorli panel sichqoncha bo‘ladi.
+  void setPointerMode(bool on) => updateState({'pointer': on ? true : null});
+
+  /// Tashqi ilova / brauzer: telefonda — YouTube ilovasi va h.k.,
+  /// Mac’da — standart brauzer, Ubuntu’da — Chrome televizor ekranida,
+  /// pult bilan boshqariladi.
+  Future<bool> openExternal(String url, {bool tv = false}) async {
+    if (Platform.isAndroid || Platform.isIOS) return NativeBridge.openUrl(url);
+    try {
+      if (Platform.isLinux) return ExternalBrowser.instance.open(url, tv: tv);
+      if (Platform.isMacOS) {
+        if (await NativeBridge.openUrl(url)) return true;
+        return (await Process.run('open', [url])).exitCode == 0;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  /// Kino sayti yoki havola: ilova ichidagi AI brauzerda (Android, iPhone,
+  /// Mac). Ubuntu’da — Chrome to‘liq ekranda (pult — sichqoncha).
+  void openSite(String url, String name, {bool search = false}) {
+    final nav = _nav;
+    if (nav != null && (BrowserScreen.webViewSupported || search)) {
+      nav.push(
+        MaterialPageRoute<void>(
+          builder: (_) => BrowserScreen(url: url, search: search),
+        ),
+      );
+      return;
+    }
+    openApp(url, name);
+  }
+
+  /// YouTube: telefonda — YouTube ilovasi; Mac’da — ichki brauzerda
+  /// televizor ko‘rinishi; Ubuntu’da — Chrome’da televizor ko‘rinishi.
+  /// Ikkalasida ham pultning ↑↓←→ / OK / Orqaga tugmalari ishlaydi.
+  void openYoutube(String query) {
+    final search = query.isEmpty
+        ? null
+        : 'https://www.youtube.com/results?search_query=${Uri.encodeQueryComponent(query)}';
+    if (Platform.isAndroid || Platform.isIOS) {
+      openApp(search ?? 'https://www.youtube.com/', 'YouTube');
+      return;
+    }
+    final tvUrl = query.isEmpty
+        ? youtubeTvUrl
+        : '$youtubeTvUrl#/search?q=${Uri.encodeQueryComponent(query)}';
+    if (Platform.isMacOS) {
+      _nav?.push(
+        MaterialPageRoute<void>(
+          builder: (_) => BrowserScreen(url: tvUrl, tvMode: true),
+        ),
+      );
+      return;
+    }
+    showToast('YouTube ochilmoqda…');
+    openExternal(tvUrl, tv: true).then((ok) {
+      if (!ok) showToast('YouTube’ni ochib bo‘lmadi');
+    });
+  }
+
+  /// Manzili hali kiritilmagan sayt (masalan, iDub): pultda yoziladi.
+  Future<void> askSiteUrl(BuildContext context, Site site) => editText(
+    context,
+    title: '${site.name} sayti manzili (masalan: ${site.id}.uz)',
+    value: site.url,
+    onSubmit: (v) {
+      final url = normalizeUrl(v);
+      if (url == null) {
+        showToast('Manzil noto‘g‘ri');
+        return;
+      }
+      TvStore.instance.setSiteUrl(site.id, url);
+      openSite(url, site.name);
+    },
+  );
 
   /// Fayl tanlash oynasi faqat telefon ekranida ochiladi: TV alohida oynada
   /// bo‘lsa, so‘rov telefondagi pultga yuboriladi.

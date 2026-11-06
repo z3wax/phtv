@@ -42,6 +42,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   MediaItem get _item => widget.items[_i];
 
+  /// Jonli kanal: hozirgi manba (asosiy yoki zaxira) va urinilganlar.
+  int _alt = 0;
+  DateTime? _bufferingSince;
+
+  String _sourceFor(MediaItem item) {
+    if (!item.isLive || _alt == 0) return item.source;
+    final alts = TvStore.instance.alternatesFor(item.source);
+    return _alt <= alts.length ? alts[_alt - 1] : item.source;
+  }
+
+  /// Manba ishlamadi yoki qotib qoldi — shu kanalning keyingi manbasi.
+  bool _tryNextSource() {
+    final item = _item;
+    if (!item.isLive) return false;
+    final alts = TvStore.instance.alternatesFor(item.source);
+    if (_alt >= alts.length) return false;
+    _alt++;
+    TvServices.instance.showToast(
+      'Boshqa manba: ${_alt + 1} / ${alts.length + 1}',
+    );
+    _open(keepSource: true);
+    return true;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -63,7 +87,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _slide?.cancel();
     _c?.dispose();
     _playFocus.dispose();
-    TvServices.instance.server?.setState({'title': ''});
+    TvServices.instance.updateState({'title': null, 'kind': null});
     super.dispose();
   }
 
@@ -76,7 +100,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     TvStore.instance.remember(_item);
   }
 
-  Future<void> _open() async {
+  Future<void> _open({bool keepSource = false}) async {
+    if (!keepSource) _alt = 0;
+    _bufferingSince = null;
     final old = _c;
     _c = null;
     _slide?.cancel();
@@ -84,7 +110,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await old?.dispose();
     final item = _item;
     TvStore.instance.remember(item);
-    TvServices.instance.server?.setState({
+    TvServices.instance.updateState({
       'title': item.title,
       'kind': item.kind.name,
     });
@@ -95,11 +121,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       return;
     }
+    final source = _sourceFor(item);
     final c = item.isFile
-        ? VideoPlayerController.file(File(item.source))
+        ? VideoPlayerController.file(File(source))
         : VideoPlayerController.networkUrl(
-            Uri.parse(item.source),
-            formatHint: item.source.contains('.m3u8') ? VideoFormat.hls : null,
+            Uri.parse(source),
+            formatHint: source.contains('.m3u8') ? VideoFormat.hls : null,
             httpHeaders: const {'User-Agent': 'TelefonTV/1.0'},
           );
     setState(() => _c = c);
@@ -115,6 +142,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       setState(() {});
     } catch (_) {
       if (!mounted || _c != c) return;
+      if (_tryNextSource()) return;
       setState(
         () => _error = item.isLive
             ? 'Kanal hozir efirda emas yoki manzil ishlamayapti'
@@ -126,7 +154,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _ended = false;
   void _onTick(VideoPlayerController c) {
     final v = c.value;
-    if (v.hasError && _error == null && mounted) {
+    // Jonli kanal 15 soniyadan ko‘p qotib qolsa — zaxira manbaga o‘tamiz.
+    if (_item.isLive && v.isBuffering) {
+      _bufferingSince ??= DateTime.now();
+      if (DateTime.now().difference(_bufferingSince!).inSeconds > 15 &&
+          _c == c) {
+        _bufferingSince = null;
+        if (_tryNextSource()) return;
+      }
+    } else {
+      _bufferingSince = null;
+    }
+    if (v.hasError && _error == null && mounted && _c == c) {
+      if (_tryNextSource()) return;
       setState(
         () =>
             _error = 'Ijro to‘xtadi: ${v.errorDescription ?? 'tarmoq xatosi'}',

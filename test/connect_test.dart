@@ -44,67 +44,92 @@ void main() {
     expect(chosen, 'tv');
   });
 
-  testWidgets(
-    'ilovadagi pult brauzer pultidagidek: tugma va matn televizorga yetadi',
-    (tester) async {
-      tester.view.physicalSize = const Size(390, 844);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
+  testWidgets('qora pult: tugmalar, matn va AI savoli televizorga yetadi', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final semantics = tester.ensureSemantics();
 
-      final commands = <Cmd>[];
-      final texts = <String>[];
-      final server = RemoteServer(
-        port: 0,
-        keyProvider: () => '1234',
-        onCommand: commands.add,
-        onText: texts.add,
-        onMedia: (_) {},
-      );
-      await tester.runAsync(server.start);
+    final commands = <Cmd>[];
+    final texts = <String>[];
+    final asks = <String>[];
+    final server = RemoteServer(
+      port: 0,
+      keyProvider: () => '1234',
+      onCommand: commands.add,
+      onText: texts.add,
+      onMedia: (_) {},
+      onAsk: asks.add,
+    );
+    await tester.runAsync(server.start);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: ThemeData.dark(),
-          home: RemoteScreen(
-            host: '127.0.0.1',
-            port: server.boundPort!,
-            pin: '1234',
-          ),
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData.dark(),
+        home: RemoteScreen(
+          host: '127.0.0.1',
+          port: server.boundPort!,
+          pin: '1234',
         ),
+      ),
+    );
+    Future<void> settle() async {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)),
       );
-      Future<void> settle() async {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 300)),
-        );
-        await tester.pump();
-      }
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+    }
 
-      for (var i = 0; i < 10 && find.text('Ulangan').evaluate().isEmpty; i++) {
-        await settle();
-      }
-      expect(find.text('Ulangan'), findsOneWidget);
-      expect(
-        find.text('Telefondan video / rasm / musiqa yuborish'),
-        findsOneWidget,
-      );
-
-      await tester.tap(find.text('Orqaga'));
-      await tester.tap(find.text('Keyingi'));
+    for (var i = 0; i < 10 && find.text('Ulangan').evaluate().isEmpty; i++) {
       await settle();
-      expect(commands, [Cmd.back, Cmd.next]);
+    }
+    expect(find.text('Ulangan'), findsOneWidget);
+    expect(find.bySemanticsLabel('Fayl yuborish'), findsOneWidget);
+    expect(find.bySemanticsLabel('Yordamchi (mikrofon)'), findsOneWidget);
 
-      await tester.enterText(
-        find.byType(TextField),
-        'https://example.com/kanallar.m3u',
-      );
-      await tester.tap(find.text('Yuborish'));
-      await settle();
-      expect(texts, ['https://example.com/kanallar.m3u']);
+    await tester.tap(find.bySemanticsLabel('Orqaga'));
+    await tester.tap(find.bySemanticsLabel('Keyingi'));
+    await tester.tap(find.bySemanticsLabel('Ovozni oshirish'));
+    await tester.tap(find.bySemanticsLabel('Yoqish / o‘chirish'));
+    await settle();
+    expect(commands, [Cmd.back, Cmd.next, Cmd.volUp, Cmd.power]);
 
-      await tester.pumpWidget(const SizedBox());
-      await tester.runAsync(server.stop);
-    },
-  );
+    // Klaviatura: matn yuborish.
+    await tester.tap(find.bySemanticsLabel('Klaviatura'));
+    await settle();
+    await tester.enterText(
+      find.byType(TextField),
+      'https://example.com/kanallar.m3u',
+    );
+    await tester.tap(find.text('Yuborish'));
+    await settle();
+    expect(texts, ['https://example.com/kanallar.m3u']);
+
+    // Kompyuterda mikrofon yo‘q — savol yozib so‘raladi.
+    await tester.tap(find.bySemanticsLabel('Yordamchi (mikrofon)'));
+    await settle();
+    await tester.enterText(find.byType(TextField), 'ob-havo qanday');
+    await tester.tap(find.text('AI’dan so‘rash'));
+    await settle();
+    expect(asks, ['ob-havo qanday']);
+
+    // Televizor javobi pultda ham ko‘rinadi.
+    server.broadcast({
+      't': 'assist',
+      'phase': 'done',
+      'q': 'ob-havo qanday',
+      'a': 'Toshkentda +12°',
+    });
+    await settle();
+    expect(find.text('Toshkentda +12°'), findsOneWidget);
+
+    semantics.dispose();
+    await tester.pumpWidget(const SizedBox());
+    await tester.runAsync(server.stop);
+  });
 
   testWidgets('PIN noto‘g‘ri bo‘lsa — brauzer pultidagidek xabar', (
     tester,

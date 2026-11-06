@@ -12,6 +12,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import android.hardware.display.DisplayManager
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
@@ -40,6 +41,7 @@ class MainActivity : FlutterActivity() {
     private var tvEngine: FlutterEngine? = null
     private var phoneChannel: MethodChannel? = null
     private var usb: UsbExporter? = null
+    private var voice: VoiceInput? = null
 
     /** YouTube kabi boshqa ilova ochilganda TV oynasi vaqtincha yopiladi. */
     private var stepAside = false
@@ -60,6 +62,7 @@ class MainActivity : FlutterActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         phoneChannel = bindChannel(flutterEngine.dartExecutor.binaryMessenger)
         usb = UsbExporter(this, flutterEngine.dartExecutor.binaryMessenger)
+        voice = VoiceInput(this, flutterEngine.dartExecutor.binaryMessenger)
         val dm = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         displayManager = dm
         dm.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
@@ -77,6 +80,12 @@ class MainActivity : FlutterActivity() {
         super.onActivityResult(requestCode, resultCode, data)
     }
 
+    /** Mikrofon ruxsati (pultdagi AI yordamchi). */
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        if (voice?.onPermissionResult(requestCode, grantResults) == true) return
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
     override fun onResume() {
         super.onResume()
         stepAside = false
@@ -89,6 +98,7 @@ class MainActivity : FlutterActivity() {
         presentation?.dismiss()
         presentation = null
         releaseTvEngine()
+        voice?.dispose()
         super.onDestroy()
     }
 
@@ -106,6 +116,7 @@ class MainActivity : FlutterActivity() {
                 "setHomeLauncher" -> result.success(setHomeLauncher(call.argument<Boolean>("on") == true))
                 "listApps" -> listApps(result)
                 "launchApp" -> result.success(launchApp(call.argument<String>("package")))
+                "volume" -> result.success(volume(call.argument<String>("action")))
                 else -> result.notImplemented()
             }
         }
@@ -123,6 +134,18 @@ class MainActivity : FlutterActivity() {
             ?: packageManager.getLaunchIntentForPackage(pkg)
             ?: return false
         return startExternal(intent)
+    }
+
+    /** Media ovozi: televizorga HDMI orqali boradigan ovoz ham shu. */
+    private fun volume(action: String?): Boolean {
+        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val direction = when (action) {
+            "volUp" -> AudioManager.ADJUST_RAISE
+            "volDown" -> AudioManager.ADJUST_LOWER
+            else -> AudioManager.ADJUST_TOGGLE_MUTE
+        }
+        audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
+        return true
     }
 
     /** Android TV qutisi / stik yoki televizor rejimidagi qurilma. */
