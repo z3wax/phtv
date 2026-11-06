@@ -182,7 +182,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        'Telefon TV 1.0 · Login, server va reklama yo‘q — hamma narsa telefoningizda.',
+                        'z3wax TV 1.0 · Login, server va reklama yo‘q — hamma narsa qurilmangizda.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 16,

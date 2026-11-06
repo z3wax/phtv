@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Telefon TV — Ubuntu kompyuterga o‘rnatish (sudo shart emas).
+# z3wax TV (Telefon TV) — Ubuntu kompyuterga o‘rnatish (sudo shart emas).
 #
-#   ./install.sh               — o‘rnatish, menyuga “Telefon TV” qo‘shish
+#   ./install.sh               — o‘rnatish, menyuga “z3wax TV” qo‘shish
 #   ./install.sh --autostart   — kompyuter yoqilganda fonda ishga tushsin:
 #                                televizor (HDMI) ulanganda o‘zi paydo bo‘ladi
 #   ./install.sh --remove      — o‘chirish
@@ -15,7 +15,7 @@ autostart="$HOME/.config/autostart"
 
 if [ "${1:-}" = "--remove" ]; then
   rm -rf "$dest" "$apps/telefon-tv.desktop" "$icons/telefon-tv.png" "$autostart/telefon-tv.desktop"
-  echo "Telefon TV o‘chirildi."
+  echo "z3wax TV o‘chirildi."
   exit 0
 fi
 
@@ -45,11 +45,15 @@ rm -rf "$dest"
 mkdir -p "$dest" "$apps" "$icons"
 cp -r "$here/bundle/." "$dest/"
 cp "$here/telefon-tv.png" "$icons/telefon-tv.png"
+# Menyudagi belgi darrov yangilansin.
+command -v gtk-update-icon-cache >/dev/null 2>&1 &&
+  gtk-update-icon-cache -q -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 
 cat > "$apps/telefon-tv.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Telefon TV
+Name=z3wax TV
+GenericName=Smart TV
 Comment=Televizorni Smart TV ga aylantiradi (HDMI)
 Exec=$dest/telefon_tv
 Icon=telefon-tv
@@ -63,15 +67,15 @@ if [ "${1:-}" = "--autostart" ]; then
   cat > "$autostart/telefon-tv.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Telefon TV (fonda)
-Comment=Televizor ulanganda Telefon TV o‘zi ochiladi
+Name=z3wax TV (fonda)
+Comment=Televizor ulanganda z3wax TV o‘zi ochiladi
 Exec=$dest/telefon_tv --background
 Icon=telefon-tv
 Terminal=false
 X-GNOME-Autostart-enabled=true
 EOF
-  echo "Kompyuter yoqilganda Telefon TV fonda ishga tushadi."
+  echo "Kompyuter yoqilganda z3wax TV fonda ishga tushadi."
 fi
 
-echo "Tayyor. Menyudan “Telefon TV” ni oching yoki: $dest/telefon_tv"
+echo "Tayyor. Menyudan “z3wax TV” ni oching yoki: $dest/telefon_tv"
 echo "Televizor qaysi ekranligini qo‘lda tanlash: TELEFON_TV_MONITOR=1 $dest/telefon_tv"

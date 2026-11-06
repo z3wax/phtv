@@ -76,7 +76,7 @@ static void set_awake(MyApplication* self, bool on) {
         GTK_APPLICATION(self), self->window,
         static_cast<GtkApplicationInhibitFlags>(GTK_APPLICATION_INHIBIT_IDLE |
                                                 GTK_APPLICATION_INHIBIT_SUSPEND),
-        "Telefon TV televizorda ko‘rsatmoqda");
+        "z3wax TV ochiq");
   } else if (!on && self->inhibit_cookie != 0) {
     gtk_application_uninhibit(GTK_APPLICATION(self), self->inhibit_cookie);
     self->inhibit_cookie = 0;
@@ -189,11 +189,11 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "Telefon TV");
+    gtk_header_bar_set_title(header_bar, "z3wax TV");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "Telefon TV");
+    gtk_window_set_title(window, "z3wax TV");
   }
 
   gtk_window_set_default_size(window, 1280, 720);
