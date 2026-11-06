@@ -82,108 +82,116 @@ class _AssistantOverlayState extends State<AssistantOverlay>
         final question = s.question.isEmpty && listening
             ? 'Gapiring, eshityapman…'
             : s.question;
-        return IgnorePointer(
-          ignoring: !s.visible,
-          child: AnimatedSlide(
-            offset: s.visible ? Offset.zero : const Offset(0, 0.4),
-            duration: const Duration(milliseconds: 320),
-            curve: Curves.easeOutCubic,
-            child: AnimatedOpacity(
-              opacity: s.visible ? 1 : 0,
-              duration: const Duration(milliseconds: 250),
-              child: Align(
-                alignment: Alignment.bottomCenter,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(60, 0, 60, 34),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 980),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(36),
-                      child: DefaultTextStyle(
-                        style: const TextStyle(decoration: TextDecoration.none),
-                        child: Container(
-                          padding: const EdgeInsets.fromLTRB(26, 22, 34, 24),
-                          decoration: BoxDecoration(
-                            color: const Color(0xEB0B0B10),
-                            borderRadius: BorderRadius.circular(36),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.08),
-                            ),
+        return RepaintBoundary(
+          child: IgnorePointer(
+            ignoring: !s.visible,
+            child: AnimatedSlide(
+              offset: s.visible ? Offset.zero : const Offset(0, 0.4),
+              duration: const Duration(milliseconds: 320),
+              curve: Curves.easeOutCubic,
+              child: AnimatedOpacity(
+                opacity: s.visible ? 1 : 0,
+                duration: const Duration(milliseconds: 250),
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(60, 0, 60, 34),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 980),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(36),
+                        child: DefaultTextStyle(
+                          style: const TextStyle(
+                            decoration: TextDecoration.none,
                           ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              AnimatedBuilder(
-                                animation: _spin,
-                                builder: (context, _) => _Orb(
-                                  turn: _spin.value,
-                                  pulse: listening,
-                                  error: error,
-                                ),
+                          child: Container(
+                            padding: const EdgeInsets.fromLTRB(26, 22, 34, 24),
+                            decoration: BoxDecoration(
+                              color: const Color(0xEB0B0B10),
+                              borderRadius: BorderRadius.circular(36),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.08),
                               ),
-                              const SizedBox(width: 26),
-                              Expanded(
-                                child: AnimatedSize(
-                                  duration: const Duration(milliseconds: 200),
-                                  alignment: Alignment.topLeft,
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      if (question.isNotEmpty)
-                                        Text(
-                                          question,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: answer.isEmpty ? 28 : 20,
-                                            fontWeight: answer.isEmpty
-                                                ? FontWeight.w600
-                                                : FontWeight.w400,
-                                            color: Colors.white.withValues(
-                                              alpha: answer.isEmpty
-                                                  ? 0.95
-                                                  : 0.55,
-                                            ),
-                                          ),
-                                        ),
-                                      if (s.phase == AssistPhase.thinking)
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                            top: 8,
-                                          ),
-                                          child: Text(
-                                            'O‘ylayapman…',
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                RepaintBoundary(
+                                  child: AnimatedBuilder(
+                                    animation: _spin,
+                                    builder: (context, _) => _Orb(
+                                      turn: _spin.value,
+                                      pulse: listening,
+                                      error: error,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 26),
+                                Expanded(
+                                  child: AnimatedSize(
+                                    duration: const Duration(milliseconds: 200),
+                                    alignment: Alignment.topLeft,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        if (question.isNotEmpty)
+                                          Text(
+                                            question,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
-                                              fontSize: 18,
+                                              fontSize: answer.isEmpty
+                                                  ? 28
+                                                  : 20,
+                                              fontWeight: answer.isEmpty
+                                                  ? FontWeight.w600
+                                                  : FontWeight.w400,
                                               color: Colors.white.withValues(
-                                                alpha: 0.5,
+                                                alpha: answer.isEmpty
+                                                    ? 0.95
+                                                    : 0.55,
                                               ),
                                             ),
                                           ),
-                                        ),
-                                      if (answer.isNotEmpty) ...[
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          answer,
-                                          maxLines: 7,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 27,
-                                            height: 1.3,
-                                            fontWeight: FontWeight.w600,
-                                            color: error
-                                                ? const Color(0xFFFBBF24)
-                                                : Colors.white,
+                                        if (s.phase == AssistPhase.thinking)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 8,
+                                            ),
+                                            child: Text(
+                                              'O‘ylayapman…',
+                                              style: TextStyle(
+                                                fontSize: 18,
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.5,
+                                                ),
+                                              ),
+                                            ),
                                           ),
-                                        ),
+                                        if (answer.isNotEmpty) ...[
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            answer,
+                                            maxLines: 7,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 27,
+                                              height: 1.3,
+                                              fontWeight: FontWeight.w600,
+                                              color: error
+                                                  ? const Color(0xFFFBBF24)
+                                                  : Colors.white,
+                                            ),
+                                          ),
+                                        ],
                                       ],
-                                    ],
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -223,7 +231,29 @@ class _Orb extends StatelessWidget {
         height: 92,
         child: Stack(
           alignment: Alignment.center,
+          clipBehavior: Clip.none,
           children: [
+            // Yumshoq yorug‘lik (soyasiz — kuchsiz videokartada ham silliq).
+            Positioned(
+              left: -18,
+              top: -18,
+              right: -18,
+              bottom: -18,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      (error
+                              ? const Color(0xFFEF4444)
+                              : const Color(0xFFAF52DE))
+                          .withValues(alpha: 0.45),
+                      const Color(0x00AF52DE),
+                    ],
+                  ),
+                ),
+              ),
+            ),
             Transform.rotate(
               angle: turn * 2 * math.pi,
               child: Container(
@@ -238,16 +268,6 @@ class _Orb extends StatelessWidget {
                           ]
                         : colors,
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color:
-                          (error
-                                  ? const Color(0xFFEF4444)
-                                  : const Color(0xFFAF52DE))
-                              .withValues(alpha: 0.55),
-                      blurRadius: 34,
-                    ),
-                  ],
                 ),
               ),
             ),

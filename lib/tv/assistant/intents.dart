@@ -110,7 +110,7 @@ String flatten(String s) => normalize(s).replaceAll("'", '');
 
 const _fillers = [
   'iltimos', 'пожалуйста', 'please', 'menga', 'мне', 'hey', 'salom', //
-  'siri', 'telefon tv', 'yordamchi', 'привет', 'эй',
+  'siri', 'telefon tv', 'z3wax', 'привет', 'эй',
 ];
 
 const _openVerbs = [

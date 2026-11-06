@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'store.dart';
+
 /// Harakat (animatsiya) sozlamalari. Testlarda cheksiz animatsiyalar o‘chadi.
 class TvMotion {
   static bool enabled = !Platform.environment.containsKey('FLUTTER_TEST');
@@ -100,11 +102,23 @@ class _DriftingGlowsState extends State<DriftingGlows>
   @override
   void initState() {
     super.initState();
-    if (TvMotion.enabled) _c.repeat();
+    TvStore.instance.settings.addListener(_sync);
+    _sync();
+  }
+
+  /// Sozlamalarda “Fon harakati” o‘chirilsa — yorug‘liklar to‘xtaydi.
+  void _sync() {
+    final on = TvMotion.enabled && TvStore.instance.settings.value.motionOn;
+    if (on && !_c.isAnimating) {
+      _c.repeat();
+    } else if (!on && _c.isAnimating) {
+      _c.stop();
+    }
   }
 
   @override
   void dispose() {
+    TvStore.instance.settings.removeListener(_sync);
     _c.dispose();
     super.dispose();
   }

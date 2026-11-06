@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'dart:ui' show Color;
@@ -13,7 +14,12 @@ import 'sites.dart';
 
 @immutable
 class TvSettings {
-  const TvSettings({this.city = 0, this.overscan = 0, this.playlistUrl = ''});
+  const TvSettings({
+    this.city = 0,
+    this.overscan = 0,
+    this.playlistUrl = '',
+    this.motion,
+  });
 
   /// Ob-havo uchun shahar (weather.dart dagi ro‘yxatdan).
   final int city;
@@ -22,17 +28,29 @@ class TvSettings {
   final int overscan;
   final String playlistUrl;
 
-  TvSettings copyWith({int? city, int? overscan, String? playlistUrl}) =>
-      TvSettings(
-        city: city ?? this.city,
-        overscan: overscan ?? this.overscan,
-        playlistUrl: playlistUrl ?? this.playlistUrl,
-      );
+  /// Fondagi suzuvchi yorug‘liklar. null — qurilmaga qarab: Ubuntu’da
+  /// o‘chiq (videokartasiz kompyuterda ekranni buzishi mumkin), boshqalarda yoniq.
+  final bool? motion;
+
+  bool get motionOn => motion ?? !Platform.isLinux;
+
+  TvSettings copyWith({
+    int? city,
+    int? overscan,
+    String? playlistUrl,
+    bool? motion,
+  }) => TvSettings(
+    city: city ?? this.city,
+    overscan: overscan ?? this.overscan,
+    playlistUrl: playlistUrl ?? this.playlistUrl,
+    motion: motion ?? this.motion,
+  );
 
   Map<String, Object?> toJson() => {
     'city': city,
     'overscan': overscan,
     'playlistUrl': playlistUrl,
+    if (motion != null) 'motion': motion,
   };
 
   static TvSettings fromJson(Object? j) {
@@ -41,6 +59,7 @@ class TvSettings {
       city: (j['city'] as num?)?.toInt() ?? 0,
       overscan: (j['overscan'] as num?)?.toInt() ?? 0,
       playlistUrl: (j['playlistUrl'] as String?) ?? '',
+      motion: j['motion'] as bool?,
     );
   }
 }

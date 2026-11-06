@@ -77,6 +77,12 @@ void main() {
     tester,
   ) async {
     await pump(tester, const SettingsScreen());
+    await tester.scrollUntilVisible(
+      find.text('Yoqilganda Telefon TV ochilsin'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
     expect(find.text('Yoqilganda Telefon TV ochilsin'), findsOneWidget);
     expect(find.text('O‘chiq'), findsOneWidget);
     await tester.ensureVisible(find.text('Yoqilganda Telefon TV ochilsin'));

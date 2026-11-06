@@ -82,6 +82,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ),
                       _Row(
+                        icon: Icons.animation_rounded,
+                        title: 'Fon harakati',
+                        subtitle:
+                            'Suzuvchi yorug‘liklar. Kompyuter sekin bo‘lsa yoki ekran miltillasa — o‘chiring',
+                        value: s.motionOn ? 'Yoniq' : 'O‘chiq',
+                        onTap: () => store.updateSettings(
+                          s.copyWith(motion: !s.motionOn),
+                        ),
+                      ),
+                      _Row(
                         icon: Icons.playlist_play_rounded,
                         title: 'IPTV pleylist manzili',
                         value: s.playlistUrl.isEmpty
