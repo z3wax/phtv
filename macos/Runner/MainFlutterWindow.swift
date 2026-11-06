@@ -18,7 +18,7 @@ class MainFlutterWindow: NSWindow {
   private var onTv = false
   private var awake: NSObjectProtocol?
   private var activityTimer: Timer?
-  private var userActivity: IOPMAssertionID = 0
+  private var idleAssertion: IOPMAssertionID = 0
   private var channel: FlutterMethodChannel?
 
   // Chegarasiz oyna ham klaviatura / pult tugmalarini qabul qilsin.
@@ -202,6 +202,6 @@ class MainFlutterWindow: NSWindow {
   /// ishga tushmaydi.
   private func declareActivity() {
     IOPMAssertionDeclareUserActivity(
-      "Telefon TV" as CFString, kIOPMUserActiveLocal, &userActivity)
+      "Telefon TV" as CFString, kIOPMUserActiveLocal, &idleAssertion)
   }
 }
