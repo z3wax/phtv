@@ -1,0 +1,162 @@
+name: Telefon TV
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**/*.md', 'docs/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telefon-tv-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.35.7'
+  FLUTTER_SUPPRESS_ANALYTICS: true
+  DART_SUPPRESS_ANALYTICS: true
+
+jobs:
+  android:
+    name: Tekshiruv, testlar va Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build apk --release
+      - name: Name the APK
+        run: |
+          version=$(grep '^version:' pubspec.yaml | awk '{print $2}' | sed 's/+.*//')
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/TelefonTV-$version.apk"
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TelefonTV-Android
+          path: dist/*.apk
+          if-no-files-found: error
+
+  ios:
+    name: iPhone (imzosiz IPA)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build ios --release --no-codesign
+      # Sideloadly / AltStore o‘zi imzolaydigan IPA.
+      - name: Package the IPA
+        run: |
+          version=$(grep '^version:' pubspec.yaml | awk '{print $2}' | sed 's/+.*//')
+          mkdir -p dist/Payload
+          cp -R build/ios/iphoneos/Runner.app dist/Payload/
+          (cd dist && zip -qr "TelefonTV-$version-imzosiz.ipa" Payload && rm -rf Payload)
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TelefonTV-iPhone
+          path: dist/*.ipa
+          if-no-files-found: error
+
+  linux:
+    name: Ubuntu ${{ matrix.ubuntu }} (kompyuter → HDMI → televizor)
+    runs-on: ubuntu-${{ matrix.ubuntu }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # Har biri o‘z libmpv versiyasiga bog‘lanadi (22.04 — libmpv1, 24.04 — libmpv2).
+        ubuntu: ['22.04', '24.04']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Linux build dependencies
+        # Ubuntu ko‘zgusi osilib qolsa — 40 daqiqa kutmasdan to‘xtasin.
+        timeout-minutes: 12
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
+          NEEDRESTART_SUSPEND: '1'
+        run: |
+          # Runner’dagi uchinchi tomon manbalari (Microsoft va h.k.) ba’zan
+          # “apt-get update” ni osiltiradi — bizga faqat Ubuntu manbalari kerak.
+          sudo find /etc/apt/sources.list.d -type f ! -name 'ubuntu.sources' -print -delete
+          apt_opts="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o DPkg::Lock::Timeout=180"
+          timeout 300 sudo -E apt-get $apt_opts update
+          timeout 480 sudo -E apt-get $apt_opts install -y --no-install-recommends \
+            clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libmpv-dev
+      - run: flutter pub get
+      - run: flutter build linux --release
+      - name: Package
+        run: |
+          version=$(grep '^version:' pubspec.yaml | awk '{print $2}' | sed 's/+.*//')
+          name="TelefonTV-$version-ubuntu-${{ matrix.ubuntu }}"
+          mkdir -p "dist/$name"
+          cp -r build/linux/x64/release/bundle "dist/$name/bundle"
+          cp linux/packaging/install.sh linux/packaging/telefon-tv.png "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TelefonTV-Ubuntu-${{ matrix.ubuntu }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  # Har push’dan keyin APK, IPA va Ubuntu fayllari Releases sahifasiga
+  # qo‘yiladi — telefonda login qilmasdan yuklab olish mumkin.
+  release:
+    name: Releases’ga joylash
+    needs: [android, ios, linux]
+    if: ${{ always() && needs.android.result == 'success' && needs.ios.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(grep '^version:' pubspec.yaml | awk '{print $2}' | sed 's/+.*//')
+          tag="v$version-build.${{ github.run_number }}"
+          ls -la dist
+          cat > notes.md <<'EOF'
+          **Android:** `.apk` faylni telefonda yuklab oling va o‘rnating (so‘rasa, “noma’lum manbalar” ga ruxsat bering).
+
+          **iPhone:** `-imzosiz.ipa` — o‘z Apple ID bilan imzolab o‘rnatiladi: Ubuntu’da iloader (iloader.app), yoki Sideloadly / AltStore. Bepul Apple ID’da 7 kunda qayta o‘rnatiladi.
+
+          **Ubuntu kompyuter (HDMI → televizor):** `sudo apt install libmpv2` (22.04 da `libmpv1`), arxivni oching va `./install.sh --autostart`.
+
+          Batafsil: README.
+          EOF
+          sed -i 's/^          //' notes.md
+          gh release create "$tag" dist/* --target "$GITHUB_SHA" \
+            --title "Telefon TV $version (build ${{ github.run_number }})" \
+            --notes-file notes.md --latest
