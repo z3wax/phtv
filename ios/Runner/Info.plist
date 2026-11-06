@@ -54,5 +54,7 @@
 	<string>Boshqa telefonni televizor pulti sifatida ulash uchun.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Rasm va videolaringizni televizorda ko‘rsatish uchun.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Televizordagi QR kodni skanerlab, pultni ulash uchun.</string>
 </dict>
 </plist>

@@ -43,6 +43,7 @@ dependencies:
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
   video_player_platform_interface: ^6.7.0
+  mobile_scanner: ^7.5.0
 
 dev_dependencies:
   flutter_test:

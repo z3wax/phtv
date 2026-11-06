@@ -2,10 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
 import '../native.dart';
 import '../tv/tv_app.dart';
+import 'connect.dart';
 import 'remote_screen.dart';
 import 'usb_screen.dart';
 
@@ -14,7 +13,9 @@ import 'usb_screen.dart';
 /// * Televizor alohida oyna sifatida ulangan (HDMI / AirPlay / Miracast) —
 ///   televizorda Smart TV, telefon ekranida pult.
 /// * Televizor ulanmagan yoki faqat ekranni takrorlaydi — Smart TV shu yerda.
-/// * “Bu telefonni pult qilish” — boshqa telefondagi Telefon TV’ni boshqarish.
+/// * Pult — kompyuter, Mac yoki boshqa telefondagi Telefon TV’ni boshqarish
+///   (televizordagi QR kod orqali, brauzer pultidagi imkoniyatlar bilan).
+/// * Birinchi ochilishda shu ikkisidan biri tanlanadi va eslab qolinadi.
 class PhoneShell extends StatefulWidget {
   const PhoneShell({super.key});
 
@@ -22,11 +23,12 @@ class PhoneShell extends StatefulWidget {
   State<PhoneShell> createState() => _PhoneShellState();
 }
 
-enum _Mode { loading, tv, localRemote, otherRemote, usb }
+enum _Mode { loading, start, tv, localRemote, otherRemote, usb }
 
 class _PhoneShellState extends State<PhoneShell> {
   bool? _external;
-  bool _otherRemote = false;
+  bool _modeLoaded = false;
+  String? _phoneMode; // 'remote' | 'tv' | null (tanlanmagan)
   bool _usb = false;
   StreamSubscription<bool>? _sub;
 
@@ -40,6 +42,19 @@ class _PhoneShellState extends State<PhoneShell> {
     NativeBridge.externalDisplay().then((v) {
       if (mounted && _external == null) setState(() => _external = v);
     });
+    loadPhoneMode().then((m) {
+      if (mounted) {
+        setState(() {
+          _phoneMode = m;
+          _modeLoaded = true;
+        });
+      }
+    });
+  }
+
+  void _setMode(String? m) {
+    savePhoneMode(m);
+    setState(() => _phoneMode = m);
   }
 
   @override
@@ -49,11 +64,12 @@ class _PhoneShellState extends State<PhoneShell> {
   }
 
   _Mode get _mode {
-    if (_external == null) return _Mode.loading;
+    if (_external == null || !_modeLoaded) return _Mode.loading;
     if (_external!) return _Mode.localRemote;
-    if (_otherRemote) return _Mode.otherRemote;
     if (_usb) return _Mode.usb;
-    return _Mode.tv;
+    if (_phoneMode == 'remote') return _Mode.otherRemote;
+    if (_phoneMode == 'tv') return _Mode.tv;
+    return _Mode.start;
   }
 
   _Mode? _applied;
@@ -81,7 +97,7 @@ class _PhoneShellState extends State<PhoneShell> {
       _Mode.tv => TvApp(
         key: const ValueKey('tv'),
         onTvDisplay: false,
-        useAsRemote: () => setState(() => _otherRemote = true),
+        useAsRemote: () => _setMode('remote'),
         openUsb: () => setState(() => _usb = true),
       ),
       _Mode.localRemote => const _RemoteApp(
@@ -92,11 +108,16 @@ class _PhoneShellState extends State<PhoneShell> {
         key: const ValueKey('usb'),
         child: UsbScreen(onExit: () => setState(() => _usb = false)),
       ),
+      _Mode.start => _RemoteApp(
+        key: const ValueKey('start'),
+        child: StartScreen(
+          onRemote: () => _setMode('remote'),
+          onTv: () => _setMode('tv'),
+        ),
+      ),
       _Mode.otherRemote => _RemoteApp(
         key: const ValueKey('other'),
-        child: _ConnectScreen(
-          onExit: () => setState(() => _otherRemote = false),
-        ),
+        child: ConnectScreen(onExit: () => _setMode(null)),
       ),
     };
   }
@@ -120,108 +141,4 @@ class _RemoteApp extends StatelessWidget {
     ),
     home: child,
   );
-}
-
-/// Boshqa telefondagi televizorga ulanish: IP va PIN (televizorda “Pult” bo‘limida).
-class _ConnectScreen extends StatefulWidget {
-  const _ConnectScreen({required this.onExit});
-  final VoidCallback onExit;
-
-  @override
-  State<_ConnectScreen> createState() => _ConnectScreenState();
-}
-
-class _ConnectScreenState extends State<_ConnectScreen> {
-  final _host = TextEditingController();
-  final _pin = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _restore();
-  }
-
-  Future<void> _restore() async {
-    try {
-      final p = SharedPreferencesAsync();
-      _host.text = await p.getString('remoteHost') ?? '';
-      _pin.text = await p.getString('remotePin') ?? '';
-    } catch (_) {}
-  }
-
-  @override
-  void dispose() {
-    _host.dispose();
-    _pin.dispose();
-    super.dispose();
-  }
-
-  Future<void> _go() async {
-    final host = _host.text.trim(), pin = _pin.text.trim();
-    if (host.isEmpty) return;
-    try {
-      final p = SharedPreferencesAsync();
-      await p.setString('remoteHost', host);
-      await p.setString('remotePin', pin);
-    } catch (_) {}
-    if (!mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => RemoteScreen(
-          host: host,
-          pin: pin,
-          onExit: () => Navigator.of(context).pop(),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          onPressed: widget.onExit,
-          icon: const Icon(Icons.arrow_back_rounded),
-        ),
-        title: const Text('Boshqa televizorga ulanish'),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          const Text(
-            'Televizor ko‘rsatayotgan telefonda: Sozlamalar → “Boshqa telefonni pult qilish”. '
-            'U yerda IP va PIN yozilgan. Ikkala telefon bitta Wi-Fi’da bo‘lsin.',
-            style: TextStyle(fontSize: 15, height: 1.4),
-          ),
-          const SizedBox(height: 20),
-          TextField(
-            controller: _host,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              labelText: 'IP manzil (masalan 192.168.1.5)',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _pin,
-            keyboardType: TextInputType.number,
-            maxLength: 4,
-            decoration: const InputDecoration(
-              labelText: 'PIN',
-              border: OutlineInputBorder(),
-            ),
-            onSubmitted: (_) => _go(),
-          ),
-          const SizedBox(height: 8),
-          FilledButton.icon(
-            onPressed: _go,
-            icon: const Icon(Icons.settings_remote_rounded),
-            label: const Text('Ulanish'),
-          ),
-        ],
-      ),
-    );
-  }
 }

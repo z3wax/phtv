@@ -235,7 +235,14 @@ Samsung telefonlar HDMI ulanganda DeX rejimini ochishi mumkin: bildirishnomadan
   o‘rtasi — OK; Orqaga, Bosh sahifa, Pauza, Ovoz, Oldingi/Keyingi, Yozish,
   Fayl yuborish.
 - **Ikkinchi telefon** — televizorda *Pult* bo‘limidagi QR kodni skanerlang:
-  brauzerda pult ochiladi, ilova shart emas (bitta Wi-Fi yoki hotspot, PIN bilan).
+  brauzerda pult ochiladi, ilova shart emas (bitta Wi-Fi, hotspot yoki USB
+  kabel, PIN bilan).
+- **Telefon TV ilovasi — pult rejimi** (brauzer pultidagi hamma imkoniyat):
+  ilova ochilganda **“Pult”** ni tanlang → **QR kodni skanerlash** → televizordagi
+  QR kod. Sensorli panel, Orqaga / Bosh / Pauza / Ovoz / Oldingi / Keyingi,
+  doim ko‘rinadigan matn maydoni (televizor matn so‘rasa — o‘zi to‘ladi),
+  **telefondan video / rasm / musiqa yuborish** foiz ko‘rsatkichi bilan. Oxirgi
+  televizor eslab qolinadi — keyingi safar ilova o‘zi ulanadi.
 - **Bluetooth pult, klaviatura yoki o‘yin pulti** — telefonga ulang, darhol ishlaydi
   (strelkalar, OK/Enter, Orqaga/Esc, Play/Pause, kanal ±).
 - Televizorning o‘z infraqizil pulti telefonga signal yubora olmaydi.

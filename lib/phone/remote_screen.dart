@@ -19,12 +19,14 @@ class RemoteScreen extends StatefulWidget {
     super.key,
     required this.host,
     this.pin = '',
+    this.port = RemoteServer.defaultPort,
     this.local = false,
     this.onExit,
   });
 
   final String host;
   final String pin;
+  final int port;
 
   /// Televizor shu telefonning o‘zida (fayl yuborish shu holatda ishlaydi).
   final bool local;
@@ -37,10 +39,19 @@ class RemoteScreen extends StatefulWidget {
 class _RemoteScreenState extends State<RemoteScreen> {
   WebSocket? _ws;
   bool _connected = false;
+  bool _everConnected = false;
+  bool _failed = false; // hali bir marta ham ulanmadi va urinish yiqildi
   bool _disposed = false;
   String _title = '';
   Timer? _retry;
-  bool _keyboardOpen = false;
+
+  // Brauzer pultidagidek: doim ko‘rinadigan matn maydoni va fayl yuborish holati.
+  final _text = TextEditingController();
+  final _textFocus = FocusNode();
+  String _hint = 'Matn yozish (qidiruv, manzil…)';
+  double? _upProgress;
+  String _upStatus = '';
+  bool _uploading = false;
 
   @override
   void initState() {
@@ -53,6 +64,8 @@ class _RemoteScreenState extends State<RemoteScreen> {
     _disposed = true;
     _retry?.cancel();
     _ws?.close();
+    _text.dispose();
+    _textFocus.dispose();
     super.dispose();
   }
 
@@ -60,7 +73,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
     if (_disposed) return;
     try {
       final uri =
-          'ws://${widget.host}:${RemoteServer.defaultPort}/ws?k=${Uri.encodeQueryComponent(widget.pin)}';
+          'ws://${widget.host}:${widget.port}/ws?k=${Uri.encodeQueryComponent(widget.pin)}';
       final ws = await WebSocket.connect(
         uri,
       ).timeout(const Duration(seconds: 6));
@@ -69,7 +82,10 @@ class _RemoteScreenState extends State<RemoteScreen> {
         return;
       }
       _ws = ws;
-      setState(() => _connected = true);
+      setState(() {
+        _connected = true;
+        _everConnected = true;
+      });
       ws.listen(
         _onMessage,
         onDone: _lost,
@@ -84,7 +100,12 @@ class _RemoteScreenState extends State<RemoteScreen> {
   void _lost() {
     _ws = null;
     if (_disposed) return;
-    if (_connected) setState(() => _connected = false);
+    if (_connected || (!_everConnected && !_failed)) {
+      setState(() {
+        _connected = false;
+        _failed = !_everConnected;
+      });
+    }
     _retry?.cancel();
     _retry = Timer(const Duration(milliseconds: 1500), _connect);
   }
@@ -110,10 +131,12 @@ class _RemoteScreenState extends State<RemoteScreen> {
       case 'state':
         setState(() => _title = (m['title'] as String?) ?? '');
       case 'textFocus':
-        _keyboard(
-          hint: m['hint'] as String? ?? 'Matn',
-          value: m['value'] as String? ?? '',
-        );
+        // Televizor matn so‘radi — maydonni to‘ldirib, klaviaturani ochamiz.
+        setState(() {
+          _text.text = m['value'] as String? ?? '';
+          _hint = m['hint'] as String? ?? 'Matn';
+        });
+        _textFocus.requestFocus();
       case 'pick':
         if (widget.local) await _sendFiles(gallery: m['gallery'] == true);
       case 'usb':
@@ -127,6 +150,38 @@ class _RemoteScreenState extends State<RemoteScreen> {
     ),
   );
 
+  void _sendText() {
+    _send({'t': 'text', 'v': _text.text});
+    _textFocus.unfocus();
+    HapticFeedback.lightImpact();
+  }
+
+  /// “Telefondan video / rasm / musiqa yuborish”: Galereya yoki Fayllar.
+  Future<void> _chooseFiles() async {
+    final gallery = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: const Color(0xFF1B1D24),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded),
+              title: const Text('Galereya — video va rasmlar'),
+              onTap: () => Navigator.pop(ctx, true),
+            ),
+            ListTile(
+              leading: const Icon(Icons.folder_open_rounded),
+              title: const Text('Fayllar — musiqa va boshqalar'),
+              onTap: () => Navigator.pop(ctx, false),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (gallery != null) await _sendFiles(gallery: gallery);
+  }
+
   Future<void> _sendFiles({required bool gallery}) async {
     try {
       final items = await pickMedia(gallery: gallery);
@@ -137,38 +192,42 @@ class _RemoteScreenState extends State<RemoteScreen> {
           't': 'media',
           'items': [for (final i in items) i.toJson()],
         });
+        setState(() => _upStatus = '✓ ${items.length} ta fayl televizorda');
       } else {
         await _upload(items);
       }
     } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Fayllarni ochib bo‘lmadi')),
-        );
-      }
+      if (mounted) setState(() => _upStatus = '✗ Fayllarni ochib bo‘lmadi');
     }
   }
 
-  /// Fayllarni boshqa qurilmadagi televizorga (Ubuntu kompyuter yoki telefon)
-  /// Wi-Fi yoki USB kabel orqali yuklaydi.
+  /// Fayllarni boshqa qurilmadagi televizorga (kompyuter, Mac, telefon)
+  /// Wi-Fi yoki USB kabel orqali yuklaydi — brauzer pultidagidek foiz bilan.
   Future<void> _upload(List<MediaItem> items) async {
-    final messenger = ScaffoldMessenger.of(context);
+    if (_uploading) return;
+    setState(() => _uploading = true);
     final client = HttpClient();
-    var ok = 0;
     try {
       for (var i = 0; i < items.length; i++) {
         final file = File(items[i].source);
         final name = file.uri.pathSegments.last;
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text('Yuborilmoqda ${i + 1}/${items.length}: $name'),
-            duration: const Duration(minutes: 10),
-          ),
-        );
+        final total = await file.length();
+        var sent = 0;
+        final prefix = items.length > 1 ? '${i + 1}/${items.length}: ' : '';
+        void show() {
+          if (!mounted) return;
+          final p = total > 0 ? sent / total : 0.0;
+          setState(() {
+            _upProgress = p;
+            _upStatus = '$prefix$name — ${(p * 100).round()}%';
+          });
+        }
+
+        show();
         final uri = Uri(
           scheme: 'http',
           host: widget.host,
-          port: RemoteServer.defaultPort,
+          port: widget.port,
           path: '/upload',
           queryParameters: {
             'k': widget.pin,
@@ -178,75 +237,43 @@ class _RemoteScreenState extends State<RemoteScreen> {
           },
         );
         final req = await client.postUrl(uri);
-        req.contentLength = await file.length();
-        await req.addStream(file.openRead());
+        req.contentLength = total;
+        var lastShown = 0;
+        await req.addStream(
+          file.openRead().map((chunk) {
+            sent += chunk.length;
+            if (sent - lastShown > total ~/ 100 || sent == total) {
+              lastShown = sent;
+              show();
+            }
+            return chunk;
+          }),
+        );
         final res = await req.close();
-        await res.drain<void>();
-        if (res.statusCode == 200) ok++;
-        messenger.hideCurrentSnackBar();
+        final body = await res.transform(utf8.decoder).join();
+        if (!mounted) return;
+        String? error;
+        if (res.statusCode != 200) {
+          try {
+            error = (jsonDecode(body) as Map)['error'] as String?;
+          } catch (_) {}
+          error ??= 'xato ${res.statusCode}';
+        }
+        setState(
+          () => _upStatus = error == null ? '✓ $name yuborildi' : '✗ $error',
+        );
       }
     } catch (_) {
-      messenger.hideCurrentSnackBar();
+      if (mounted) setState(() => _upStatus = '✗ Aloqa uzildi');
     } finally {
       client.close(force: true);
+      if (mounted) {
+        setState(() {
+          _uploading = false;
+          _upProgress = null;
+        });
+      }
     }
-    if (!mounted) return;
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          ok == items.length
-              ? '$ok ta fayl televizorga yuborildi'
-              : '${items.length - ok} ta fayl yuborilmadi',
-        ),
-      ),
-    );
-  }
-
-  Future<void> _keyboard({
-    String hint = 'Matn yozish',
-    String value = '',
-  }) async {
-    if (_keyboardOpen) return;
-    _keyboardOpen = true;
-    final controller = TextEditingController(text: value);
-    final text = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF1B1D24),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          16,
-          16,
-          16 + MediaQuery.of(ctx).viewInsets.bottom,
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: controller,
-                autofocus: true,
-                keyboardType: TextInputType.url,
-                textInputAction: TextInputAction.send,
-                decoration: InputDecoration(
-                  hintText: hint,
-                  border: const OutlineInputBorder(),
-                ),
-                onSubmitted: (v) => Navigator.pop(ctx, v),
-              ),
-            ),
-            const SizedBox(width: 10),
-            IconButton.filled(
-              onPressed: () => Navigator.pop(ctx, controller.text),
-              icon: const Icon(Icons.send_rounded),
-            ),
-          ],
-        ),
-      ),
-    );
-    _keyboardOpen = false;
-    controller.dispose();
-    if (text != null) _send({'t': 'text', 'v': text});
   }
 
   @override
@@ -262,6 +289,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
       },
       child: Scaffold(
         backgroundColor: const Color(0xFF0D0E12),
+        resizeToAvoidBottomInset: false,
         body: DecoratedBox(
           decoration: const BoxDecoration(
             gradient: RadialGradient(
@@ -274,10 +302,11 @@ class _RemoteScreenState extends State<RemoteScreen> {
             child: LayoutBuilder(
               builder: (context, box) {
                 final pad = math
-                    .min(box.maxWidth - 64, box.maxHeight * 0.42)
-                    .clamp(200.0, 340.0);
+                    .min(box.maxWidth - 64, box.maxHeight * 0.36)
+                    .clamp(170.0, 330.0);
+                final keyboard = MediaQuery.of(context).viewInsets.bottom;
                 return Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                  padding: EdgeInsets.fromLTRB(20, 8, 20, 12 + keyboard),
                   child: Column(
                     children: [
                       Row(
@@ -291,9 +320,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              widget.local
-                                  ? 'Telefon TV — pult'
-                                  : 'Pult · ${widget.host}',
+                              widget.local ? 'Telefon TV — pult' : 'Telefon TV',
                               style: const TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.w700,
@@ -301,99 +328,174 @@ class _RemoteScreenState extends State<RemoteScreen> {
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          _Status(connected: _connected),
+                          if (widget.local)
+                            IconButton(
+                              tooltip: 'USB fleshka',
+                              onPressed: _openUsb,
+                              icon: const Icon(Icons.usb_rounded),
+                            ),
+                          _Status(
+                            connected: _connected,
+                            failed: _failed && !_everConnected,
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
                       SizedBox(
-                        height: 22,
+                        height: 20,
                         child: Text(
-                          _title.isEmpty
-                              ? (widget.local
-                                    ? 'Televizorga qarang — bu yerda boshqaring'
-                                    : '')
-                              : 'Ekranda: $_title',
+                          _title.isNotEmpty
+                              ? 'Ekranda: $_title'
+                              : widget.local
+                              ? 'Televizorga qarang — bu yerda boshqaring'
+                              : '${widget.host}:${widget.port}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: Color(0xFF9AA3C7),
-                            fontSize: 15,
+                            fontSize: 14,
                           ),
                         ),
                       ),
-                      const Spacer(),
-                      _TouchPad(size: pad, onCmd: _cmd),
-                      const Spacer(),
-                      Row(
-                        children: [
-                          _Key(
-                            icon: Icons.arrow_back_ios_new_rounded,
-                            label: 'Orqaga',
-                            onTap: () => _cmd(Cmd.back),
-                          ),
-                          _Key(
-                            icon: Icons.tv_rounded,
-                            label: 'Bosh',
-                            onTap: () => _cmd(Cmd.home),
-                          ),
-                          _Key(
-                            icon: Icons.play_arrow_rounded,
-                            label: 'Pauza',
-                            onTap: () => _cmd(Cmd.playPause),
-                          ),
-                          _Key(
-                            icon: Icons.volume_off_rounded,
-                            label: 'Ovozsiz',
-                            onTap: () => _cmd(Cmd.mute),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          _Key(
-                            icon: Icons.skip_previous_rounded,
-                            label: 'Oldingi',
-                            onTap: () => _cmd(Cmd.prev),
-                          ),
-                          _Key(
-                            icon: Icons.remove_rounded,
-                            label: 'Ovoz',
-                            onTap: () => _cmd(Cmd.volDown),
-                          ),
-                          _Key(
-                            icon: Icons.add_rounded,
-                            label: 'Ovoz',
-                            onTap: () => _cmd(Cmd.volUp),
-                          ),
-                          _Key(
-                            icon: Icons.skip_next_rounded,
-                            label: 'Keyingi',
-                            onTap: () => _cmd(Cmd.next),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          _Key(
-                            icon: Icons.keyboard_rounded,
-                            label: 'Yozish',
-                            onTap: () => _keyboard(),
-                            wide: true,
-                          ),
-                          _Key(
-                            icon: Icons.upload_rounded,
-                            label: 'Fayl yuborish',
-                            onTap: () => _sendFiles(gallery: true),
-                          ),
-                          if (widget.local) ...[
+                      if (keyboard == 0) ...[
+                        const Spacer(),
+                        _TouchPad(size: pad, onCmd: _cmd),
+                        const Spacer(),
+                        Row(
+                          children: [
                             _Key(
-                              icon: Icons.usb_rounded,
-                              label: 'USB fleshka',
-                              onTap: _openUsb,
+                              icon: Icons.arrow_back_ios_new_rounded,
+                              label: 'Orqaga',
+                              onTap: () => _cmd(Cmd.back),
+                            ),
+                            _Key(
+                              icon: Icons.home_rounded,
+                              label: 'Bosh',
+                              onTap: () => _cmd(Cmd.home),
+                            ),
+                            _Key(
+                              icon: Icons.play_arrow_rounded,
+                              label: 'Pauza',
+                              onTap: () => _cmd(Cmd.playPause),
+                            ),
+                            _Key(
+                              icon: Icons.volume_off_rounded,
+                              label: 'Ovozsiz',
+                              onTap: () => _cmd(Cmd.mute),
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            _Key(
+                              icon: Icons.skip_previous_rounded,
+                              label: 'Oldingi',
+                              onTap: () => _cmd(Cmd.prev),
+                            ),
+                            _Key(
+                              icon: Icons.remove_rounded,
+                              label: 'Ovoz',
+                              onTap: () => _cmd(Cmd.volDown),
+                            ),
+                            _Key(
+                              icon: Icons.add_rounded,
+                              label: 'Ovoz',
+                              onTap: () => _cmd(Cmd.volUp),
+                            ),
+                            _Key(
+                              icon: Icons.skip_next_rounded,
+                              label: 'Keyingi',
+                              onTap: () => _cmd(Cmd.next),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF1D3A8A),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                            onPressed: _uploading ? null : _chooseFiles,
+                            icon: const Icon(Icons.upload_rounded),
+                            label: const Text(
+                              'Telefondan video / rasm / musiqa yuborish',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(3),
+                          child: LinearProgressIndicator(
+                            value: _upProgress ?? 0,
+                            minHeight: 6,
+                            backgroundColor: const Color(0xFF22252F),
+                            color: const Color(0xFF4ADE80),
+                          ),
+                        ),
+                        SizedBox(
+                          height: 20,
+                          child: Center(
+                            child: Text(
+                              _upStatus,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFF9AA3C7),
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ] else
+                        const Spacer(),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _text,
+                              focusNode: _textFocus,
+                              keyboardType: TextInputType.url,
+                              textInputAction: TextInputAction.send,
+                              onSubmitted: (_) => _sendText(),
+                              decoration: InputDecoration(
+                                hintText: _hint,
+                                filled: true,
+                                fillColor: const Color(0xFF22252F),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide.none,
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 14,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            height: 50,
+                            child: FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF3B6CFF),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              onPressed: _sendText,
+                              child: const Text('Yuborish'),
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -409,37 +511,38 @@ class _RemoteScreenState extends State<RemoteScreen> {
 }
 
 class _Status extends StatelessWidget {
-  const _Status({required this.connected});
+  const _Status({required this.connected, required this.failed});
   final bool connected;
 
+  /// Hali ulanmagan va urinish yiqildi (brauzer pultidagi kabi xabar).
+  final bool failed;
+
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-    decoration: BoxDecoration(
-      color: connected ? const Color(0xFF0F2E1C) : const Color(0xFF3A2A10),
-      borderRadius: BorderRadius.circular(99),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          Icons.circle,
-          size: 8,
-          color: connected ? const Color(0xFF4ADE80) : const Color(0xFFFBBF24),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          connected ? 'Ulangan' : 'Ulanmoqda…',
-          style: TextStyle(
-            fontSize: 13,
-            color: connected
-                ? const Color(0xFF4ADE80)
-                : const Color(0xFFFBBF24),
+  Widget build(BuildContext context) {
+    final color = connected ? const Color(0xFF4ADE80) : const Color(0xFFFBBF24);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: connected ? const Color(0xFF0F2E1C) : const Color(0xFF3A2A10),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.circle, size: 8, color: color),
+          const SizedBox(width: 6),
+          Text(
+            connected
+                ? 'Ulangan'
+                : failed
+                ? 'PIN noto‘g‘ri yoki TV o‘chiq'
+                : 'Ulanmoqda…',
+            style: TextStyle(fontSize: 13, color: color),
           ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 }
 
 /// Apple TV pultidagidek dumaloq sensorli panel: surish — yo‘nalish,
@@ -559,21 +662,14 @@ class _TouchPadState extends State<_TouchPad> {
 }
 
 class _Key extends StatelessWidget {
-  const _Key({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.wide = false,
-  });
+  const _Key({required this.icon, required this.label, required this.onTap});
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  final bool wide;
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      flex: wide ? 2 : 1,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 5),
         child: Material(
