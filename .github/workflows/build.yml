@@ -9,8 +9,10 @@ on:
 permissions:
   contents: read
 
+# Har bir commit alohida: eski yig‘ilishni qayta ishga tushirish yangisini
+# bekor qilmaydi.
 concurrency:
-  group: telefon-tv-${{ github.ref }}
+  group: telefon-tv-${{ github.sha }}
   cancel-in-progress: true
 
 env:
