@@ -1,11 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 
 import '../media_picker.dart';
 import '../native.dart';
-import 'external.dart';
 import 'input.dart';
 import 'model.dart';
 import 'screens/browser_screen.dart';
@@ -73,8 +71,7 @@ class TvServices {
   }
 
   Future<void> openApp(String url, String name) async {
-    showToast('$name ochilmoqda…');
-    if (!await openExternal(url)) showToast('$name ni ochib bo‘lmadi');
+    openSite(url, name);
   }
 
   /// Pult ekranida ko‘rinadigan holat (nima ijro etilmoqda, kursor rejimi…).
@@ -88,26 +85,10 @@ class TvServices {
   /// Brauzerdagi kursor: pultdagi sensorli panel sichqoncha bo‘ladi.
   void setPointerMode(bool on) => updateState({'pointer': on ? true : null});
 
-  /// Tashqi ilova / brauzer: telefonda — YouTube ilovasi va h.k.,
-  /// Mac’da — standart brauzer, Ubuntu’da — Chrome televizor ekranida,
-  /// pult bilan boshqariladi.
-  Future<bool> openExternal(String url, {bool tv = false}) async {
-    if (Platform.isAndroid || Platform.isIOS) return NativeBridge.openUrl(url);
-    try {
-      if (Platform.isLinux) return ExternalBrowser.instance.open(url, tv: tv);
-      if (Platform.isMacOS) {
-        if (await NativeBridge.openUrl(url)) return true;
-        return (await Process.run('open', [url])).exitCode == 0;
-      }
-    } catch (_) {}
-    return false;
-  }
-
-  /// Kino sayti yoki havola: ilova ichidagi AI brauzerda (Android, iPhone,
-  /// Mac). Ubuntu’da — Chrome to‘liq ekranda (pult — sichqoncha).
+  /// Saytlar barcha platformalarda ilova ichidagi brauzerda ochiladi.
   void openSite(String url, String name, {bool search = false}) {
     final nav = _nav;
-    if (nav != null && (BrowserScreen.webViewSupported || search)) {
+    if (nav != null) {
       nav.push(
         MaterialPageRoute<void>(
           builder: (_) => BrowserScreen(url: url, search: search),
@@ -115,35 +96,15 @@ class TvServices {
       );
       return;
     }
-    openApp(url, name);
+    showToast('$name uchun brauzerni hozir ochib bo‘lmadi');
   }
 
-  /// YouTube: telefonda — YouTube ilovasi; Mac’da — ichki brauzerda
-  /// televizor ko‘rinishi; Ubuntu’da — Chrome’da televizor ko‘rinishi.
-  /// Ikkalasida ham pultning ↑↓←→ / OK / Orqaga tugmalari ishlaydi.
+  /// YouTube ham ichki brauzerda, pult kursori va matn kiritish bilan.
   void openYoutube(String query) {
     final search = query.isEmpty
         ? null
         : 'https://www.youtube.com/results?search_query=${Uri.encodeQueryComponent(query)}';
-    if (Platform.isAndroid || Platform.isIOS) {
-      openApp(search ?? 'https://www.youtube.com/', 'YouTube');
-      return;
-    }
-    final tvUrl = query.isEmpty
-        ? youtubeTvUrl
-        : '$youtubeTvUrl#/search?q=${Uri.encodeQueryComponent(query)}';
-    if (Platform.isMacOS) {
-      _nav?.push(
-        MaterialPageRoute<void>(
-          builder: (_) => BrowserScreen(url: tvUrl, tvMode: true),
-        ),
-      );
-      return;
-    }
-    showToast('YouTube ochilmoqda…');
-    openExternal(tvUrl, tv: true).then((ok) {
-      if (!ok) showToast('YouTube’ni ochib bo‘lmadi');
-    });
+    openSite(search ?? 'https://www.youtube.com/', 'YouTube');
   }
 
   /// Manzili hali kiritilmagan sayt (masalan, iDub): pultda yoziladi.
@@ -251,7 +212,7 @@ class TvServices {
     final controller = TextEditingController(text: value);
     BuildContext? dialog;
     // Pultdan (telefon, brauzer) yozilgan matn ham shu oynaga tushadi.
-    TvInput.instance.textTarget = TextTarget(
+    final target = TextTarget(
       hint: title,
       value: value,
       onSubmit: (v) {
@@ -259,8 +220,9 @@ class TvServices {
         if (ctx != null && ctx.mounted) Navigator.pop(ctx, v);
       },
     );
+    TvInput.instance.textTarget = target;
     server?.broadcast({'t': 'textFocus', 'hint': title, 'value': value});
-    final result = await showDialog<String>(
+    final route = DialogRoute<String>(
       context: context,
       builder: (ctx) {
         dialog = ctx;
@@ -271,7 +233,8 @@ class TvServices {
             child: TextField(
               controller: controller,
               autofocus: true,
-              keyboardType: TextInputType.url,
+              keyboardType: TextInputType.text,
+              textInputAction: TextInputAction.done,
               onSubmitted: (v) => Navigator.pop(ctx, v),
             ),
           ),
@@ -288,8 +251,16 @@ class TvServices {
         );
       },
     );
-    TvInput.instance.textTarget = null;
-    controller.dispose();
-    if (result != null) onSubmit(result);
+    final result = await Navigator.of(context, rootNavigator: true).push(route);
+    if (TvInput.instance.textTarget == target) {
+      TvInput.instance.textTarget = null;
+    }
+    try {
+      if (result != null) onSubmit(result);
+    } finally {
+      // The closing dialog still builds its TextField during the transition.
+      await route.completed;
+      controller.dispose();
+    }
   }
 }

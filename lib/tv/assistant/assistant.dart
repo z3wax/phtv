@@ -57,6 +57,10 @@ class Assistant {
   Timer? _hide, _listenTimeout;
   int _seq = 0;
   DateTime _lastBroadcast = DateTime(0);
+  bool _dispatchingCommand = false;
+
+  /// Ovozli buyruq ochiq ekranga boradi, yordamchi paneliga emas.
+  bool get dispatchingCommand => _dispatchingCommand;
 
   void _set(AssistState s, {bool force = true}) {
     state.value = s;
@@ -410,8 +414,13 @@ class Assistant {
         return say(lang, '$name qo‘yildi', 'Включаю $name', 'Playing $name');
 
       case RemoteCmd(:final cmd, :final times):
-        for (var i = 0; i < times; i++) {
-          TvInput.instance.send(cmd);
+        _dispatchingCommand = true;
+        try {
+          for (var i = 0; i < times; i++) {
+            TvInput.instance.send(cmd);
+          }
+        } finally {
+          _dispatchingCommand = false;
         }
         return switch (cmd) {
           Cmd.volUp => say(lang, 'Ovoz balandladi', 'Громче', 'Volume up'),

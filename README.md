@@ -150,7 +150,7 @@ O‘rnatish ([Releases](https://github.com/z3wax/phtv/releases/latest) →
 `TelefonTV-…-ubuntu-24.04.tar.gz` yoki `-22.04`):
 
 ```bash
-sudo apt install libmpv2
+sudo apt install libmpv2 libwebkit2gtk-4.1-0 gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
 ```
 
 ```bash
@@ -277,9 +277,10 @@ Samsung telefonlar HDMI ulanganda DeX rejimini ochishi mumkin: bildirishnomadan
 - **Pleyer**: video, HLS jonli efir, musiqa, rasmlar va slayd-shou; to‘xtagan
   joyidan davom etadi.
 - **Fayllar**: telefondagi video, musiqa va rasmlar televizorda.
-- **YouTube**: telefonda — YouTube ilovasi; Mac’da — ichki brauzerda
-  televizor ko‘rinishi; Ubuntu’da — Chrome televizor ekranida (pult ↑↓←→ / OK /
-  Orqaga bilan boshqaradi; `sudo apt install xdotool chromium-browser`).
+- **YouTube va kino saytlari**: Android, iPhone, Mac va Ubuntu’da ilovaning
+  o‘z brauzerida ochiladi. Pultdagi sensorli panel — kursor, OK — bosish,
+  Orqaga — oldingi sahifa; matn klaviaturasi va **Bo‘sh joy (Space)** tugmasi
+  bilan qidirish mumkin. Ubuntu’da WebKitGTK va GStreamer ishlaydi.
 - **AI brauzer**: pult kursori, telefondagi panel — sichqoncha; “Qisqacha” —
   AI sahifani tushuntiradi, “Savol” — sahifa haqida so‘rash.
 - **Pult**: Apple TV pulti shaklida, to‘liq qora — ilovada ham, brauzerda ham.

@@ -98,7 +98,8 @@ h1{font-size:17px;margin:0}
 <div id="assist"><div><div id="aq"></div><div id="aa"></div></div></div>
 <div id="up"><span id="upst"></span><div id="bar"><i id="bari"></i></div></div>
 <div id="sheet"><form id="f"><p id="hint">Matn yozish (qidiruv, manzil…)</p>
- <input id="txt" autocomplete="off" placeholder="Yozing…">
+ <input id="txt" type="text" inputmode="text" enterkeyhint="send" autocomplete="off" placeholder="Yozing…">
+ <div class="btns"><button type="button" id="space">␣ Bo‘sh joy (Space)</button></div>
  <div class="btns"><button type="button" id="ask">✨ AI’dan so‘rash</button><button class="pri" id="sendb">Yuborish</button></div></form></div>
 </main><script>
 const key=new URLSearchParams(location.search).get('k')||'';
@@ -152,6 +153,8 @@ function openSheet(ask,hint,value){askMode=ask;$('hint').textContent=hint;txt.va
 function closeSheet(){sheet.style.display='none';txt.blur()}
 sheet.addEventListener('click',e=>{if(e.target===sheet)closeSheet()});
 $('kb').addEventListener('click',()=>openSheet(false,'Matn yozish (qidiruv, manzil…)',''));
+$('space').addEventListener('click',()=>{const start=txt.selectionStart??txt.value.length,end=txt.selectionEnd??start;
+ txt.setRangeText(' ',start,end,'end');txt.focus();txt.dispatchEvent(new Event('input',{bubbles:true}))});
 $('ask').addEventListener('click',()=>{if(txt.value.trim())raw({t:'ask',v:txt.value.trim()});closeSheet()});
 $('f').addEventListener('submit',e=>{e.preventDefault();
  if(askMode){if(txt.value.trim())raw({t:'ask',v:txt.value.trim()})}else raw({t:'text',v:txt.value});closeSheet()});

@@ -221,11 +221,20 @@ class UsbExporter(private val activity: Activity, messenger: BinaryMessenger) {
     }
 
     private fun write(folder: Uri, name: String, src: File) {
-        findChild(folder, name)?.let { DocumentsContract.deleteDocument(activity.contentResolver, it) }
+        // Konvertatsiya kengaytmani o‘zgartirishi mumkin. Fleshka ichidagi
+        // avvalgi fayllarni ham saqlaymiz, nomni yakuniy formatdan keyin tanlaymiz.
+        val dot = name.lastIndexOf('.')
+        val stem = if (dot > 0) name.substring(0, dot) else name
+        val suffix = if (dot > 0) name.substring(dot) else ""
+        var available = name
+        var n = 2
+        while (findChild(folder, available) != null) {
+            available = "${stem}_${n++}$suffix"
+        }
         val ext = name.substringAfterLast('.', "").lowercase()
         val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
-        val doc = DocumentsContract.createDocument(activity.contentResolver, folder, mime, name)
-            ?: throw IOException("Fayl yaratilmadi: $name")
+        val doc = DocumentsContract.createDocument(activity.contentResolver, folder, mime, available)
+            ?: throw IOException("Fayl yaratilmadi: $available")
         activity.contentResolver.openOutputStream(doc, "w").use { out ->
             if (out == null) throw IOException("Fleshkaga yozib bo‘lmadi")
             FileInputStream(src).use { it.copyTo(out, 1 shl 20) }

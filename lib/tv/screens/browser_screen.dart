@@ -11,6 +11,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../assistant/assistant.dart';
+import '../../linux_browser.dart';
 import '../../native.dart';
 import '../external.dart';
 import '../input.dart';
@@ -30,8 +31,7 @@ const _desktopUa =
 ///   ⏮⏭ — sahifani yuqoriga/pastga. Telefondagi panel — sichqoncha.
 /// * ✨ “Qisqacha” — AI sahifani 2–3 gapda tushuntiradi; “Savol” — sahifa
 ///   haqida so‘rash (pultdagi mikrofon bilan ham).
-/// * Ubuntu’da (ichki brauzer yo‘q) — o‘qish rejimi: matn va havolalar
-///   pult bilan yuriladi, videoli saytlar Chrome’da ochiladi.
+/// * Linux’da ham WebKit ilovaning o‘z oynasida ishlaydi.
 class BrowserScreen extends StatefulWidget {
   const BrowserScreen({
     super.key,
@@ -51,14 +51,26 @@ class BrowserScreen extends StatefulWidget {
   final bool tvMode;
 
   static bool get webViewSupported =>
-      !kIsWeb && (Platform.isAndroid || Platform.isIOS || Platform.isMacOS);
+      !kIsWeb &&
+      (Platform.isAndroid ||
+          Platform.isIOS ||
+          Platform.isMacOS ||
+          Platform.isLinux);
 
   @override
   State<BrowserScreen> createState() => _BrowserScreenState();
 }
 
-class _BrowserScreenState extends State<BrowserScreen> {
+class _BrowserScreenState extends State<BrowserScreen>
+    with WidgetsBindingObserver {
   WebViewController? _web;
+  LinuxBrowserController? _linux;
+  final _surfaceKey = GlobalKey();
+  bool _linuxReady = false;
+  bool _routeActive = false;
+  int _surfaceSeq = 0;
+  Animation<double>? _routeAnimation;
+  TextTarget? _remoteText;
   String _url = '';
   String _title = '';
   int _progress = 100;
@@ -78,20 +90,20 @@ class _BrowserScreenState extends State<BrowserScreen> {
   final _readerScroll = ScrollController();
   final _readerFirst = FocusNode(debugLabel: 'reader-first');
 
-  bool get _webMode => _web != null;
+  bool get _webMode => _web != null || _linux != null;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     TvInput.instance.push(_onCmd);
-    Assistant.instance.pageContext = _pageText;
+    Assistant.instance.state.addListener(_assistantChanged);
     final start = widget.url ?? '';
-    if (BrowserScreen.webViewSupported) {
+    if (Platform.isLinux) {
+      _url = start.isEmpty ? 'https://www.google.com/' : start;
+      _createLinuxView();
+    } else if (BrowserScreen.webViewSupported) {
       _web = _createWebView();
-      if (!widget.tvMode) {
-        TvServices.instance.setPointerMode(true);
-        TvInput.instance.onPointer = _onPointer;
-      }
       final url = start.isEmpty ? 'https://www.google.com/' : start;
       _web!.loadRequest(Uri.parse(url));
       _url = url;
@@ -108,19 +120,216 @@ class _BrowserScreenState extends State<BrowserScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final animation = ModalRoute.of(context)?.animation;
+    if (animation != _routeAnimation) {
+      _routeAnimation?.removeStatusListener(_animationChanged);
+      _routeAnimation = animation;
+      animation?.addStatusListener(_animationChanged);
+    }
+    final active = ModalRoute.isCurrentOf(context) ?? true;
+    if (_routeActive != active) {
+      _routeActive = active;
+      _syncRemoteOwnership();
+    }
+    _scheduleLinuxSurface();
+  }
+
+  @override
+  void didChangeMetrics() => _scheduleLinuxSurface();
+
+  void _syncRemoteOwnership() {
+    final input = TvInput.instance;
+    if (_routeActive) {
+      Assistant.instance.pageContext = _pageText;
+      TvServices.instance.updateState({
+        'title': _title.isEmpty ? null : _title,
+        'kind': null,
+      });
+      input.onPointer = _webMode && !widget.tvMode ? _onPointer : null;
+      TvServices.instance.setPointerMode(_webMode && !widget.tvMode);
+      if (_webMode &&
+          (input.textTarget == null ||
+              input.textTarget is _BrowserTextTarget)) {
+        _remoteText ??= _BrowserTextTarget(
+          hint: 'Matn yoki qidiruv',
+          value: '',
+          onSubmit: _receiveText,
+        );
+        input.textTarget = _remoteText;
+      }
+    } else {
+      unawaited(
+        _js(
+          "document.querySelectorAll('video,audio').forEach(function(v){v.pause();})",
+        ),
+      );
+      if (Assistant.instance.pageContext == _pageText) {
+        Assistant.instance.pageContext = null;
+      }
+      if (input.onPointer == _onPointer) {
+        input.onPointer = null;
+        TvServices.instance.setPointerMode(false);
+      }
+      if (input.textTarget == _remoteText) input.textTarget = null;
+    }
+  }
+
+  void _assistantChanged() => _scheduleLinuxSurface();
+  void _animationChanged(AnimationStatus _) => _scheduleLinuxSurface();
+
+  void _scheduleLinuxSurface() {
+    if (_linux == null) return;
+    _surfaceSeq++;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _syncLinuxSurface();
+    });
+  }
+
+  Future<void> _syncLinuxSurface() async {
+    final linux = _linux;
+    if (linux == null || !_linuxReady) return;
+    final seq = ++_surfaceSeq;
+    final visible =
+        _routeActive &&
+        _error == null &&
+        !Assistant.instance.state.value.visible &&
+        (_routeAnimation == null || _routeAnimation!.isCompleted);
+    try {
+      final box = _surfaceKey.currentContext?.findRenderObject();
+      if (visible && box is RenderBox && box.hasSize) {
+        final rect = Rect.fromPoints(
+          box.localToGlobal(Offset.zero),
+          box.localToGlobal(Offset(box.size.width, box.size.height)),
+        );
+        await linux.setBounds(rect);
+      }
+      if (!mounted || seq != _surfaceSeq) return;
+      await linux.setVisible(visible);
+      if (visible && !widget.tvMode) _paintLinuxCursor();
+    } catch (_) {
+      // The route may have closed while a native layout update was pending.
+    }
+  }
+
+  void _paintLinuxCursor() {
+    if (!_linuxReady || _area.isEmpty || widget.tvMode) return;
+    unawaited(
+      _linux
+          ?.pointer(_cursor.dx / _area.width, _cursor.dy / _area.height)
+          .catchError((Object _) {}),
+    );
+  }
+
+  @override
   void dispose() {
+    _surfaceSeq++;
+    WidgetsBinding.instance.removeObserver(this);
+    _routeAnimation?.removeStatusListener(_animationChanged);
+    Assistant.instance.state.removeListener(_assistantChanged);
     TvInput.instance.remove(_onCmd);
     if (TvInput.instance.onPointer == _onPointer) {
       TvInput.instance.onPointer = null;
+      TvServices.instance.setPointerMode(false);
     }
     if (Assistant.instance.pageContext == _pageText) {
       Assistant.instance.pageContext = null;
     }
-    if (_webMode) TvServices.instance.setPointerMode(false);
+    if (TvInput.instance.textTarget == _remoteText) {
+      TvInput.instance.textTarget = null;
+    }
+    // A previous BrowserScreen reclaims these callbacks when it becomes current.
+    unawaited(_linux?.dispose());
     _firstTool.dispose();
     _readerFirst.dispose();
     _readerScroll.dispose();
     super.dispose();
+  }
+
+  Future<void> _createLinuxView() async {
+    final linux = LinuxBrowserController(
+      userAgent: widget.tvMode ? tvUserAgent : _desktopUa,
+    );
+    _linux = linux;
+    linux
+      ..onProgress = (p) {
+        if (mounted) setState(() => _progress = p);
+      }
+      ..onUrlChange = (url) {
+        if (mounted) setState(() => _url = url);
+      }
+      ..onPageStarted = (_) {
+        if (mounted) setState(() => _error = null);
+      }
+      ..onPageFinished = (url) {
+        if (!mounted) return;
+        setState(() {
+          _url = url;
+          _progress = 100;
+        });
+        _scheduleLinuxSurface();
+      }
+      ..onTitleChange = (title) {
+        if (!mounted) return;
+        setState(() => _title = title);
+        if (_routeActive) TvServices.instance.updateState({'title': title});
+      }
+      ..onError = (message) {
+        if (mounted) {
+          setState(() {
+            _error = message;
+            _progress = 100;
+          });
+          _scheduleLinuxSurface();
+        }
+      }
+      ..onKey = (key) {
+        if (!_routeActive) return;
+        if (key == 'address') {
+          _editAddress();
+          return;
+        }
+        final cmd = switch (key) {
+          'escape' => Cmd.back,
+          'home' => Cmd.home,
+          _ => null,
+        };
+        if (cmd != null) TvInput.instance.send(cmd);
+      };
+    try {
+      await linux.loadRequest(Uri.parse(_url));
+      if (!mounted) return;
+      _linuxReady = true;
+      _syncRemoteOwnership();
+      _scheduleLinuxSurface();
+    } catch (_) {
+      await linux.dispose();
+      if (!mounted) return;
+      setState(() {
+        _linux = null;
+        _error = 'Ichki brauzerni ishga tushirib bo‘lmadi';
+        _progress = 100;
+      });
+      _syncRemoteOwnership();
+    }
+  }
+
+  Future<Object> _runJsResult(String script) async {
+    if (_linux case final linux?) {
+      return linux.runJavaScriptReturningResult(script);
+    }
+    return await _web?.runJavaScriptReturningResult(script) ?? '';
+  }
+
+  Future<void> _reload() async {
+    try {
+      if (_linux case final linux?) {
+        await linux.reload();
+      } else {
+        await _web?.reload();
+      }
+    } catch (_) {}
   }
 
   WebViewController _createWebView() {
@@ -160,9 +369,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
               _title = t ?? '';
               _progress = 100;
             });
-            TvServices.instance.updateState({
-              'title': _title.isEmpty ? null : _title,
-            });
+            if (_routeActive) {
+              TvServices.instance.updateState({
+                'title': _title.isEmpty ? null : _title,
+              });
+            }
           },
         ),
       );
@@ -176,10 +387,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
   /* ------------------ AI uchun sahifa matni ------------------ */
 
   Future<String?> _pageText() async {
-    final web = _web;
-    if (web != null) {
+    if (_webMode) {
       try {
-        final r = await web.runJavaScriptReturningResult(
+        final r = await _runJsResult(
           "(document.body ? document.body.innerText : '').slice(0, 6000)",
         );
         var text = '$r';
@@ -201,31 +411,53 @@ class _BrowserScreenState extends State<BrowserScreen> {
   void _summarize() =>
       Assistant.instance.ask('Shu sahifani 2–3 gapda qisqacha tushuntirib ber');
 
-  void _askAboutPage() => TvServices.instance.editText(
-    context,
-    title: 'Sahifa haqida savol (yoki pultdagi 🎤)',
-    value: '',
-    onSubmit: (v) {
-      if (v.trim().isNotEmpty) Assistant.instance.ask(v);
-    },
-  );
+  bool _restoreForSubmit() {
+    if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? false)) return false;
+    _routeActive = true;
+    _syncRemoteOwnership();
+    return true;
+  }
 
-  void _editAddress() => TvServices.instance.editText(
-    context,
-    title: 'Manzil yoki qidiruv',
-    value: _webMode ? _url : (_reader?.url ?? ''),
-    onSubmit: (v) {
-      final t = v.trim();
-      if (t.isEmpty) return;
-      final url = normalizeUrl(t);
-      _go(url ?? searchUrl(t), search: url == null);
-    },
-  );
+  Future<void> _askAboutPage() async {
+    await TvServices.instance.editText(
+      context,
+      title: 'Sahifa haqida savol (yoki pultdagi 🎤)',
+      value: '',
+      onSubmit: (v) {
+        if (!_restoreForSubmit()) return;
+        if (v.trim().isNotEmpty) Assistant.instance.ask(v);
+      },
+    );
+    if (mounted) _syncRemoteOwnership();
+  }
+
+  Future<void> _editAddress() async {
+    await TvServices.instance.editText(
+      context,
+      title: 'Manzil yoki qidiruv',
+      value: _webMode ? _url : (_reader?.url ?? ''),
+      onSubmit: (v) {
+        if (!_restoreForSubmit()) return;
+        final t = v.trim();
+        if (t.isEmpty) return;
+        final url = normalizeUrl(t);
+        _go(url ?? searchUrl(t), search: url == null);
+        _syncRemoteOwnership();
+      },
+    );
+    if (mounted) _syncRemoteOwnership();
+  }
 
   void _go(String url, {bool search = false}) {
-    final web = _web;
-    if (web != null) {
-      web.loadRequest(Uri.parse(url));
+    if (_webMode) {
+      final load =
+          _linux?.loadRequest(Uri.parse(url)) ??
+          _web!.loadRequest(Uri.parse(url));
+      unawaited(
+        load.catchError((Object _) {
+          if (mounted) setState(() => _error = 'Sahifani ochib bo‘lmadi');
+        }),
+      );
       setState(() {
         _url = url;
         _toolbar = false;
@@ -247,11 +479,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
   /* ------------------ Pult: kursor ------------------ */
 
   void _onPointer(double dx, double dy) {
-    if (!mounted || !_webMode) return;
+    if (!mounted || !_routeActive || !_webMode) return;
     setState(() {
       _toolbar = false;
       _cursor = _clamp(_cursor + Offset(dx * 1.4, dy * 1.4));
     });
+    _paintLinuxCursor();
   }
 
   Offset _clamp(Offset o) => Offset(
@@ -261,7 +494,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   Future<void> _js(String code) async {
     try {
-      await _web?.runJavaScript(code);
+      if (_linux case final linux?) {
+        await linux.runJavaScript(code);
+      } else {
+        await _web?.runJavaScript(code);
+      }
     } catch (_) {}
   }
 
@@ -284,12 +521,13 @@ class _BrowserScreenState extends State<BrowserScreen> {
       _js('window.scrollBy(300, 0)');
     }
     setState(() => _cursor = _clamp(next));
+    _paintLinuxCursor();
   }
 
   /// Sahifa eng tepada bo‘lsa — yuqoridagi tugmalar paneliga o‘tamiz.
   Future<void> _checkTop() async {
     try {
-      final r = await _web?.runJavaScriptReturningResult('window.scrollY');
+      final r = await _runJsResult('window.scrollY');
       if (!mounted) return;
       if ((num.tryParse('$r') ?? 1) <= 0) {
         setState(() => _toolbar = true);
@@ -299,23 +537,29 @@ class _BrowserScreenState extends State<BrowserScreen> {
   }
 
   Future<void> _click() async {
-    final web = _web;
-    if (web == null || _area.isEmpty) return;
+    if (!_webMode || _area.isEmpty) return;
     final fx = _cursor.dx / _area.width, fy = _cursor.dy / _area.height;
     Object? r;
     try {
-      r = await web.runJavaScriptReturningResult('''
+      r = await _runJsResult('''
 (function(fx, fy){
   var x = fx * window.innerWidth, y = fy * window.innerHeight;
   var e = document.elementFromPoint(x, y);
   if (!e) return '';
+  if (${_linux != null} && e.tagName === 'IFRAME') {
+    var r=e.getBoundingClientRect();
+    e.contentWindow.postMessage({telefonTvRemoteClick:true,fx:(x-r.left)/r.width,fy:(y-r.top)/r.height},'*');
+    return 'frameclick';
+  }
   var t = e.closest('input,textarea,[contenteditable="true"]');
   var skip = {submit:1, button:1, checkbox:1, radio:1, range:1, file:1, image:1, reset:1};
   if (t && !skip[t.type]) { t.focus(); return 'input:' + (t.value || ''); }
-  ['pointerdown','mousedown','pointerup','mouseup'].forEach(function(n){
-    e.dispatchEvent(new MouseEvent(n, {bubbles:true, cancelable:true, clientX:x, clientY:y, view:window}));
-  });
-  e.click();
+  if (${_linux == null}) {
+    ['pointerdown','mousedown','pointerup','mouseup'].forEach(function(n){
+      e.dispatchEvent(new MouseEvent(n, {bubbles:true, cancelable:true, clientX:x, clientY:y, view:window}));
+    });
+    e.click();
+  }
   return 'click';
 })($fx, $fy)''');
     } catch (_) {
@@ -323,25 +567,52 @@ class _BrowserScreenState extends State<BrowserScreen> {
     }
     var res = '$r';
     if (res.startsWith('"')) res = jsonDecode(res) as String;
+    if (res == 'click' && _linux != null) {
+      try {
+        await _linux!.click(fx, fy);
+      } catch (_) {}
+      return;
+    }
     if (!res.startsWith('input:') || !mounted) return;
     await TvServices.instance.editText(
       context,
       title: 'Matn yozing',
       value: res.substring(6),
-      onSubmit: (v) => _js('''
+      onSubmit: (value) {
+        if (!_restoreForSubmit()) return;
+        unawaited(_receiveText(value));
+      },
+    );
+    if (mounted) _syncRemoteOwnership();
+  }
+
+  Future<void> _receiveText(String value) async {
+    if (!_webMode || !_restoreForSubmit()) return;
+    try {
+      final handled = await _runJsResult('''
 (function(v){
-  var t = document.activeElement; if (!t) return;
+  var t = document.activeElement;
+  if (!t || !t.matches('input,textarea,[contenteditable="true"]')) return false;
   var proto = t.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   var d = Object.getOwnPropertyDescriptor(proto, 'value');
-  if (d && d.set && t.tagName !== 'DIV') d.set.call(t, v); else t.innerText = v;
+  if (t.isContentEditable) t.innerText = v;
+  else if (d && d.set) d.set.call(t, v);
+  else t.value = v;
   t.dispatchEvent(new Event('input', {bubbles:true}));
   t.dispatchEvent(new Event('change', {bubbles:true}));
   ['keydown','keypress','keyup'].forEach(function(n){
     t.dispatchEvent(new KeyboardEvent(n, {key:'Enter', code:'Enter', keyCode:13, which:13, bubbles:true}));
   });
   if (t.form) { if (t.form.requestSubmit) t.form.requestSubmit(); else t.form.submit(); }
-})(${jsonEncode(v)})'''),
-    );
+  return true;
+})(${jsonEncode(value)})''');
+      if (handled != true && handled != 'true' && mounted) {
+        final text = value.trim();
+        if (text.isNotEmpty) _go(normalizeUrl(text) ?? searchUrl(text));
+      }
+    } catch (_) {
+      TvServices.instance.showToast('Matnni sahifaga yuborib bo‘lmadi');
+    }
   }
 
   bool _onCmd(Cmd cmd) {
@@ -365,7 +636,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
         _ => null,
       };
       if (key == null) return false;
-      NativeBridge.sendKey(key);
+      if (_linux case final linux?) {
+        unawaited(linux.sendKey(key));
+      } else {
+        NativeBridge.sendKey(key);
+      }
       return true;
     }
     if (_toolbar) {
@@ -411,10 +686,19 @@ class _BrowserScreenState extends State<BrowserScreen> {
       return;
     }
     _lastBack = now;
-    NativeBridge.sendKey('escape');
+    if (_linux case final linux?) {
+      unawaited(linux.sendKey('escape'));
+    } else {
+      NativeBridge.sendKey('escape');
+    }
   }
 
   Future<void> _back() async {
+    final linux = _linux;
+    if (linux != null && await linux.canGoBack()) {
+      await linux.goBack();
+      return;
+    }
     final web = _web;
     if (web != null && await web.canGoBack()) {
       await web.goBack();
@@ -429,6 +713,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
   }
 
   bool _readerCmd(Cmd cmd) {
+    if ((cmd == Cmd.next || cmd == Cmd.prev) && !_readerScroll.hasClients) {
+      return true;
+    }
     switch (cmd) {
       case Cmd.next:
         _readerScroll.animateTo(
@@ -455,7 +742,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
     }
   }
 
-  /* ------------------ O‘qish rejimi (Ubuntu) ------------------ */
+  /* ------------------ O‘qish rejimi ------------------ */
 
   Future<void> _openReader(String url, {bool search = false}) async {
     var target = url;
@@ -490,8 +777,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error =
-            'Sahifani ochib bo‘lmadi. Internetni tekshiring yoki to‘liq brauzerda oching.';
+        _error = 'Sahifani ochib bo‘lmadi. Internetni tekshiring.';
       });
     }
   }
@@ -564,7 +850,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
       child: Row(
         children: [
           tool(Icons.arrow_back_rounded, '', _back, focus: _firstTool),
-          if (_webMode) tool(Icons.refresh_rounded, '', () => _web?.reload()),
+          if (_webMode) tool(Icons.refresh_rounded, '', _reload),
+          tool(Icons.home_rounded, '', () => TvInput.instance.send(Cmd.home)),
           Expanded(
             child: TvFocusable(
               onTap: _editAddress,
@@ -604,11 +891,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
           tool(Icons.auto_awesome_rounded, 'Qisqacha', _summarize),
           tool(Icons.question_answer_rounded, 'Savol', _askAboutPage),
           tool(Icons.bookmark_add_rounded, '', _bookmark),
-          if (!_webMode)
-            tool(Icons.open_in_new_rounded, '', () {
-              final u = _reader?.url;
-              if (u != null) TvServices.instance.openApp(u, 'Brauzer');
-            }),
         ],
       ),
     );
@@ -619,13 +901,19 @@ class _BrowserScreenState extends State<BrowserScreen> {
       .replaceFirst(RegExp(r'/$'), '');
 
   Widget _webBody() {
+    if (_error != null) return _readerBody();
     return LayoutBuilder(
       builder: (context, box) {
         _area = Size(box.maxWidth, box.maxHeight);
+        _scheduleLinuxSurface();
         return Stack(
+          key: _surfaceKey,
           children: [
-            Positioned.fill(child: WebViewWidget(controller: _web!)),
-            if (!_toolbar && !widget.tvMode)
+            if (_web case final web?)
+              Positioned.fill(child: WebViewWidget(controller: web))
+            else
+              const Positioned.fill(child: ColoredBox(color: Colors.black)),
+            if (_linux == null && !_toolbar && !widget.tvMode)
               AnimatedPositioned(
                 duration: const Duration(milliseconds: 70),
                 left: _cursor.dx - 4,
@@ -718,6 +1006,15 @@ class _BrowserScreenState extends State<BrowserScreen> {
       },
     );
   }
+}
+
+/// Generic browser input can be restored without replacing a pending dialog.
+class _BrowserTextTarget extends TextTarget {
+  const _BrowserTextTarget({
+    required super.hint,
+    required super.value,
+    required super.onSubmit,
+  });
 }
 
 class _Cursor extends StatelessWidget {

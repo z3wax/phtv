@@ -107,7 +107,7 @@ jobs:
           # “apt-get update” ni osiltiradi — bizga faqat Ubuntu manbalari kerak.
           sudo find /etc/apt/sources.list.d -type f ! -name 'ubuntu.sources' -print -delete
           apt_opts="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o DPkg::Lock::Timeout=180"
-          pkgs="clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libmpv-dev"
+          pkgs="clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libmpv-dev libwebkit2gtk-4.1-dev gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad"
           install() {
             timeout 300 sudo -E apt-get $apt_opts update &&
               timeout 600 sudo -E apt-get $apt_opts install -y --no-install-recommends $pkgs
@@ -204,7 +204,7 @@ jobs:
   release:
     name: Releases’ga joylash
     needs: [android, ios, linux, macos]
-    if: ${{ always() && needs.android.result == 'success' && needs.ios.result == 'success' }}
+    if: ${{ success() }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -228,7 +228,9 @@ jobs:
 
           **Mac (macOS 10.15 Catalina va yangilari):** `-macos.dmg` ni oching, “Telefon TV” ni Applications’ga torting. Birinchi marta Finder’da ilova ustida Control + bosish → Open → Open (bir marta). Keyin Launchpad’dan oddiy ochiladi. “Shikastlangan” desa — Terminal’da bir marta: `xattr -cr "/Applications/Telefon TV.app"`.
 
-          **Ubuntu kompyuter (HDMI → televizor):** `sudo apt install libmpv2` (22.04 da `libmpv1`), YouTube pult bilan va ovozli javob uchun `sudo apt install xdotool chromium-browser espeak-ng`, arxivni oching va `./install.sh --autostart`.
+          **Ubuntu kompyuter (HDMI → televizor):** `sudo apt install libmpv2 libwebkit2gtk-4.1-0 gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad` (22.04 da `libmpv2` o‘rniga `libmpv1`). Ovozli javob uchun `sudo apt install espeak-ng`. Arxivni oching va `./install.sh --autostart`.
+
+          **Yangiliklar:** Linux, Mac, Android va iPhone’da saytlar va YouTube ilova ichida ochiladi; pultdan kursor, bosish va oddiy matn kiritish ishlaydi. Klaviaturada alohida “Bo‘sh joy (Space)” tugmasi. Parallel fayl yuborish, pleyerlar ustma-ust ijrosi, ovozli “orqaga”, brauzer holati va USB fayl nomlari tuzatildi.
 
           **AI yordamchi:** pultdagi 🎤 — gapiring. Kalitsiz darrov ishlaydi; tezroq va aqlliroq bo‘lishi uchun Sozlamalar → AI yordamchi → Google Gemini (aistudio.google.com/apikey) yoki Groq (console.groq.com/keys) bepul kaliti.
 

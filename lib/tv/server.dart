@@ -64,6 +64,7 @@ class RemoteServer {
 
   HttpServer? _server;
   final _clients = <WebSocket, bool>{}; // qiymat: shu qurilmaning o‘zimi
+  final _uploadsInProgress = <String>{};
   final clients = ValueNotifier<int>(0);
   Map<String, Object?>? _state;
   bool _stopped = false;
@@ -179,7 +180,9 @@ class RemoteServer {
     }
     final dir = await dirProvider();
     await dir.create(recursive: true);
-    final file = uniqueFile(dir, name);
+    final file = uniqueFile(dir, name, reserved: _uploadsInProgress);
+    // Boshqa pult ayni nomni yuborsa, tugallanmagan fayl ham band hisoblanadi.
+    _uploadsInProgress.add(file.path);
     final part = File('${file.path}.part');
     final sink = part.openWrite();
     try {
@@ -193,6 +196,8 @@ class RemoteServer {
         'ok': false,
         'error': 'Saqlab bo‘lmadi',
       });
+    } finally {
+      _uploadsInProgress.remove(file.path);
     }
     final dot = name.lastIndexOf('.');
     final item = MediaItem(
@@ -222,12 +227,16 @@ class RemoteServer {
   }
 
   /// Bir xil nomli fayl bo‘lsa — “nom (2).mp4”.
-  static File uniqueFile(Directory dir, String name) {
+  static File uniqueFile(
+    Directory dir,
+    String name, {
+    Set<String> reserved = const {},
+  }) {
     final dot = name.lastIndexOf('.');
     final base = dot > 0 ? name.substring(0, dot) : name;
     final ext = dot > 0 ? name.substring(dot) : '';
     var f = File('${dir.path}/$name');
-    for (var n = 2; f.existsSync(); n++) {
+    for (var n = 2; f.existsSync() || reserved.contains(f.path); n++) {
       f = File('${dir.path}/$base ($n)$ext');
     }
     return f;

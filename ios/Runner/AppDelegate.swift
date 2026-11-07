@@ -227,8 +227,19 @@ final class UsbExporter: NSObject, UIDocumentPickerDelegate {
           } else {
             self.progress(i, files.count, name, false)
           }
-          let dest = dir.appendingPathComponent(name)
-          if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+          // Asl va konvertatsiya qilingan fayllar, shuningdek fleshkadagi
+          // oldingi nusxalar ham saqlansin. Kengaytma o‘zgargach nom tanlanadi.
+          let existing = Set(try fm.contentsOfDirectory(atPath: dir.path).map { $0.lowercased() })
+          let stem = (name as NSString).deletingPathExtension
+          let outputExt = (name as NSString).pathExtension
+          let suffix = outputExt.isEmpty ? "" : ".\(outputExt)"
+          var available = name
+          var n = 2
+          while existing.contains(available.lowercased()) {
+            available = "\(stem)_\(n)\(suffix)"
+            n += 1
+          }
+          let dest = dir.appendingPathComponent(available)
           try fm.copyItem(at: temp ?? src, to: dest)
           if let t = temp {
             try? fm.removeItem(at: t)

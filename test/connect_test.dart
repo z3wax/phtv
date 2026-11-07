@@ -108,6 +108,22 @@ void main() {
     await settle();
     expect(texts, ['https://example.com/kanallar.m3u']);
 
+    // Oddiy matn klaviaturasi va alohida Space tugmasi kursor joyiga bo‘sh joy qo‘yadi.
+    await tester.tap(find.bySemanticsLabel('Klaviatura'));
+    await settle();
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.keyboardType, TextInputType.text);
+    await tester.enterText(find.byType(TextField), 'Kinoqidirish');
+    field.controller!.selection = const TextSelection.collapsed(offset: 4);
+    await tester.tap(find.text('Bo‘sh joy (Space)'));
+    await tester.pump();
+    expect(field.controller!.text, 'Kino qidirish');
+    expect(field.controller!.selection.baseOffset, 5);
+    expect(field.focusNode!.hasFocus, isTrue);
+    await tester.tap(find.text('Yuborish'));
+    await settle();
+    expect(texts.last, 'Kino qidirish');
+
     // Kompyuterda mikrofon yo‘q — savol yozib so‘raladi.
     await tester.tap(find.bySemanticsLabel('Yordamchi (mikrofon)'));
     await settle();

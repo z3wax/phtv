@@ -58,6 +58,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
 
   // Matn: televizor so‘rasa, klaviatura oynasi ochiladi.
   final _text = TextEditingController();
+  final _textFocus = FocusNode();
   String _hint = 'Matn yozish (qidiruv, manzil…)';
   bool _sheetOpen = false;
 
@@ -89,6 +90,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
     if (_listening) VoiceInput.instance.cancel();
     _ws?.close();
     _text.dispose();
+    _textFocus.dispose();
     super.dispose();
   }
 
@@ -317,8 +319,9 @@ class _RemoteScreenState extends State<RemoteScreen> {
             children: [
               TextField(
                 controller: _text,
+                focusNode: _textFocus,
                 autofocus: true,
-                keyboardType: ask ? TextInputType.text : TextInputType.url,
+                keyboardType: TextInputType.text,
                 textInputAction: TextInputAction.send,
                 onSubmitted: (_) {
                   Navigator.pop(ctx);
@@ -337,6 +340,15 @@ class _RemoteScreenState extends State<RemoteScreen> {
                 ),
               ),
               const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: _SheetButton(
+                  label: 'Bo‘sh joy (Space)',
+                  icon: Icons.space_bar_rounded,
+                  onTap: _insertSpace,
+                ),
+              ),
+              const SizedBox(height: 10),
               Row(
                 children: [
                   Expanded(
@@ -370,6 +382,19 @@ class _RemoteScreenState extends State<RemoteScreen> {
       ),
     );
     _sheetOpen = false;
+  }
+
+  void _insertSpace() {
+    final value = _text.value;
+    final selection = value.selection;
+    final start = selection.isValid ? selection.start : value.text.length;
+    final end = selection.isValid ? selection.end : value.text.length;
+    _text.value = value.copyWith(
+      text: value.text.replaceRange(start, end, ' '),
+      selection: TextSelection.collapsed(offset: start + 1),
+      composing: TextRange.empty,
+    );
+    _textFocus.requestFocus();
   }
 
   void _sendText() {

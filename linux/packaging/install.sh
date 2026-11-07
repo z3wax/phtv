@@ -20,25 +20,25 @@ if [ "${1:-}" = "--remove" ]; then
 fi
 
 # Video, jonli kanallar va musiqa uchun libmpv kerak.
-if ! ldconfig -p 2>/dev/null | grep -q 'libmpv\.so'; then
+if ! ldconfig -p 2>/dev/null | grep 'libmpv\.so' >/dev/null; then
   echo "Avval video kutubxonasini o‘rnating:"
   echo "  Ubuntu 24.04 va yangisi:  sudo apt install libmpv2"
   echo "  Ubuntu 22.04:             sudo apt install libmpv1"
   exit 1
 fi
 
-# Ixtiyoriy, lekin tavsiya: YouTube va saytlar Chrome’da televizorda ochilib,
-# telefondagi pult bilan boshqarilishi uchun (xdotool), AI javobini ovoz
-# chiqarib aytish uchun (espeak-ng).
-missing=""
-command -v xdotool >/dev/null 2>&1 || missing="$missing xdotool"
-command -v espeak-ng >/dev/null 2>&1 || missing="$missing espeak-ng"
-if ! command -v google-chrome >/dev/null 2>&1 && ! command -v chromium >/dev/null 2>&1 \
-  && ! command -v chromium-browser >/dev/null 2>&1; then
-  missing="$missing chromium-browser"
+# Saytlar va YouTube ilovaning o‘zida WebKitGTK orqali ishlaydi.
+if ! ldconfig -p 2>/dev/null | grep 'libwebkit2gtk-4\.[01]' >/dev/null; then
+  echo "Ichki brauzer kutubxonalarini o‘rnating:"
+  echo "  sudo apt install libwebkit2gtk-4.1-0 gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad"
+  exit 1
 fi
+
+# AI javobini ovoz chiqarib aytish uchun.
+missing=""
+command -v espeak-ng >/dev/null 2>&1 || missing="$missing espeak-ng"
 if [ -n "$missing" ]; then
-  echo "Tavsiya (YouTube pult bilan, ovozli javob):  sudo apt install$missing"
+  echo "Tavsiya (ovozli javob):  sudo apt install$missing"
 fi
 
 rm -rf "$dest"

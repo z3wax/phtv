@@ -24,6 +24,7 @@ class TvLinuxPlayer extends VideoPlayerPlatform {
   final _views = HashMap<int, VideoController>();
   final _events = HashMap<int, StreamController<VideoEvent>>();
   final _subs = HashMap<int, List<StreamSubscription<Object?>>>();
+  final _durationTimers = <int, Timer>{};
 
   static void register() {
     MediaKit.ensureInitialized();
@@ -36,6 +37,7 @@ class TvLinuxPlayer extends VideoPlayerPlatform {
   /// pleyer ekranidagi kutish chegarasi ishlaydi.
   static bool isFatal(String message) {
     final m = message.toLowerCase();
+    if (m.contains('no video or audio streams')) return true;
     // Apparat dekoderi, ovoz qurilmasi — mpv o‘zi boshqa yo‘lga o‘tadi.
     const harmless = [
       'vdpau',
@@ -66,14 +68,17 @@ class TvLinuxPlayer extends VideoPlayerPlatform {
 
   @override
   Future<void> dispose(int playerId) async {
+    _durationTimers.remove(playerId)?.cancel();
+    final ready = _ready.remove(playerId);
+    if (ready != null && !ready.isCompleted) ready.complete();
+    final player = _players.remove(playerId);
+    _views.remove(playerId);
     for (final s
         in _subs.remove(playerId) ?? const <StreamSubscription<Object?>>[]) {
       await s.cancel();
     }
-    await _players.remove(playerId)?.dispose();
+    await player?.dispose();
     await _events.remove(playerId)?.close();
-    _views.remove(playerId);
-    _ready.remove(playerId);
   }
 
   @override
@@ -96,7 +101,8 @@ class TvLinuxPlayer extends VideoPlayerPlatform {
       await native.setProperty('hls-bitrate', 'max');
       await native.setProperty('cache', 'yes');
       await native.setProperty('cache-secs', '30');
-      await native.setProperty('demuxer-max-bytes', '200MiB');
+      await native.setProperty('demuxer-max-bytes', '32MiB');
+      await native.setProperty('demuxer-max-back-bytes', '8MiB');
       await native.setProperty('demuxer-readahead-secs', '20');
       await native.setProperty(
         'stream-lavf-o',
@@ -119,10 +125,15 @@ class TvLinuxPlayer extends VideoPlayerPlatform {
         if (uri == null) throw ArgumentError('uri must not be null');
         resource = uri;
     }
-    await player.open(
-      Media(resource, httpHeaders: dataSource.httpHeaders),
-      play: false,
-    );
+    try {
+      await player.open(
+        Media(resource, httpHeaders: dataSource.httpHeaders),
+        play: false,
+      );
+    } catch (_) {
+      await dispose(id);
+      rethrow;
+    }
     return id;
   }
 
@@ -138,7 +149,9 @@ class TvLinuxPlayer extends VideoPlayerPlatform {
     Timer? durationWait;
 
     void markReady() {
-      if (ready.isCompleted) return;
+      if (ready.isCompleted || events.isClosed || !_players.containsKey(id)) {
+        return;
+      }
       final hasPicture = width > 0 && height > 0;
       final audioOnly = gotTracks && width == 0 && height == 0;
       if (!hasPicture && !audioOnly) return;
@@ -149,9 +162,11 @@ class TvLinuxPlayer extends VideoPlayerPlatform {
           waitedForDuration = true;
           markReady();
         });
+        _durationTimers[id] = durationWait!;
         return;
       }
       durationWait?.cancel();
+      _durationTimers.remove(id);
       events.add(
         VideoEvent(
           eventType: VideoEventType.initialized,
@@ -164,7 +179,7 @@ class TvLinuxPlayer extends VideoPlayerPlatform {
 
     void afterReady(VideoEvent Function() make) async {
       await ready.future;
-      if (!events.isClosed) events.add(make());
+      if (!events.isClosed && _players.containsKey(id)) events.add(make());
     }
 
     subs
@@ -234,7 +249,9 @@ class TvLinuxPlayer extends VideoPlayerPlatform {
         player.stream.error.listen((message) {
           debugPrint('mpv: $message');
           // Ochilgandan keyingi mpv xabarlari ijroni to‘xtatmaydi.
-          if (ready.isCompleted || !isFatal(message) || events.isClosed) {
+          if (!isFatal(message) ||
+              events.isClosed ||
+              !_players.containsKey(id)) {
             return;
           }
           events.addError(PlatformException(code: 'mpv', message: message));

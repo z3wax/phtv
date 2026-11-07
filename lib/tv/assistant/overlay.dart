@@ -63,6 +63,7 @@ class _AssistantOverlayState extends State<AssistantOverlay>
 
   /// Panel ochiq: Orqaga / OK — yopadi, boshqa tugmalar — yopib, o‘tkazadi.
   bool _onCmd(Cmd cmd) {
+    if (_a.dispatchingCommand) return false;
     _a.dismiss();
     return cmd == Cmd.back || cmd == Cmd.ok;
   }

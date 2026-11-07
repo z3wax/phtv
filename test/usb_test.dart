@@ -48,6 +48,51 @@ void main() {
     },
   );
 
+  test('video konvertatsiyasining MP4 nomi ham band qilinadi', () {
+    for (final extensions in [
+      ['mov', 'mp4', 'mkv'],
+      ['mp4', 'mov', 'mkv'],
+    ]) {
+      final plan = planUsb([
+        for (final ext in extensions)
+          MediaItem(
+            title: 'Kino',
+            source: '/p/kino.$ext',
+            kind: MediaKind.video,
+          ),
+      ]);
+      expect(plan.map((f) => f.name), [
+        'kino.${extensions[0]}',
+        'kino_2.${extensions[1]}',
+        'kino_3.${extensions[2]}',
+      ]);
+      // Natijani bitta formatga o‘tkazish ham nomlarni birlashtirmaydi.
+      final converted = plan.map(
+        (f) => f.name.replaceFirst(RegExp(r'\.[^.]+$'), '.mp4'),
+      );
+      expect(converted.toSet().length, plan.length);
+    }
+  });
+
+  test('HEIC va JPEG konvertatsiyasi bir nomga tushmaydi', () {
+    final plan = planUsb([
+      MediaItem(title: 'Oila', source: '/p/oila.heic', kind: MediaKind.image),
+      MediaItem(title: 'Oila', source: '/p/oila.jpg', kind: MediaKind.image),
+      MediaItem(title: 'Oila', source: '/p/oila.jpeg', kind: MediaKind.image),
+      MediaItem(
+        title: 'Oila_2',
+        source: '/p/oila_2.webp',
+        kind: MediaKind.image,
+      ),
+    ]);
+    expect(plan.map((f) => f.name), [
+      'oila.heic',
+      'oila_2.jpg',
+      'oila_3.jpeg',
+      'oila_2_2.webp',
+    ]);
+  });
+
   testWidgets('USB ekrani yo‘riqnoma va tugmalarni ko‘rsatadi', (tester) async {
     tester.view.physicalSize = const Size(390, 2400);
     tester.view.devicePixelRatio = 1;

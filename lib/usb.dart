@@ -164,7 +164,7 @@ String extensionOf(String path) {
   return dot > slash ? path.substring(dot + 1) : '';
 }
 
-/// Fayllarni papkalarga ajratadi va takrorlanmas nom beradi.
+/// Asl va konvertatsiyadan keyingi nomlar ham bir-birini bosib yozmasin.
 List<UsbFile> planUsb(List<MediaItem> items) {
   final used = <String>{};
   final out = <UsbFile>[];
@@ -176,10 +176,27 @@ List<UsbFile> planUsb(List<MediaItem> items) {
     final dot = name.lastIndexOf('.');
     final base = dot > 0 ? name.substring(0, dot) : name;
     final suffix = dot > 0 ? name.substring(dot) : '';
-    for (var n = 2; used.contains('$folder/${name.toLowerCase()}'); n++) {
+    final convertedExt = switch (item.kind) {
+      MediaKind.image => 'jpg',
+      MediaKind.video || MediaKind.live => 'mp4',
+      MediaKind.audio => ext.toLowerCase(),
+    };
+    Set<String> destinations(String candidate) {
+      final candidateDot = candidate.lastIndexOf('.');
+      final stem = candidateDot > 0
+          ? candidate.substring(0, candidateDot)
+          : candidate;
+      return {
+        '$folder/${candidate.toLowerCase()}',
+        if (convertedExt.isNotEmpty)
+          '$folder/${stem.toLowerCase()}.$convertedExt',
+      };
+    }
+
+    for (var n = 2; destinations(name).any(used.contains); n++) {
       name = '${base}_$n$suffix';
     }
-    used.add('$folder/${name.toLowerCase()}');
+    used.addAll(destinations(name));
     out.add(UsbFile(path: item.source, folder: folder, name: name));
   }
   return out;

@@ -53,6 +53,12 @@ void main() {
     return (res.statusCode, text);
   }
 
+  Future<void> until(bool Function() ok) async {
+    for (var i = 0; i < 100 && !ok(); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+  }
+
   test('telefondan yuborilgan video saqlanadi va televizorga yetadi', () async {
     final bytes = List<int>.generate(300000, (i) => i % 251);
     final (status, body) = await post(
@@ -78,6 +84,47 @@ void main() {
     );
   });
 
+  test(
+    'ikki pult bir xil nomli fayl yuborsa, ikkalasi buzilmay saqlanadi',
+    () async {
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+      final firstBytes = List<int>.filled(20000, 65);
+      final secondBytes = List<int>.filled(20000, 66);
+      final uri = Uri.parse(
+        'http://127.0.0.1:${server.boundPort}/upload?name=film.mp4',
+      );
+      final first = await client.postUrl(uri);
+      first.bufferOutput = false;
+      first.contentLength = firstBytes.length;
+      first.add(firstBytes.sublist(0, 10000));
+      await first.flush();
+
+      // Birinchi yuklashning yarmi yozilguncha kutamiz; so‘ng ikkinchisi tugaydi.
+      final part = File('${uploads.path}/film.mp4.part');
+      await until(() => part.existsSync() && part.lengthSync() == 10000);
+      expect(part.existsSync(), isTrue);
+      expect(part.lengthSync(), 10000);
+      final second = await client.postUrl(uri);
+      second.add(secondBytes);
+      final secondResponse = await second.close();
+      final secondBody = await secondResponse.transform(utf8.decoder).join();
+
+      first.add(firstBytes.sublist(10000));
+      final firstResponse = await first.close();
+      final firstBody = await firstResponse.transform(utf8.decoder).join();
+      expect(firstResponse.statusCode, HttpStatus.ok, reason: firstBody);
+      expect(secondResponse.statusCode, HttpStatus.ok, reason: secondBody);
+      expect(await File('${uploads.path}/film.mp4').readAsBytes(), firstBytes);
+      expect(
+        await File('${uploads.path}/film (2).mp4').readAsBytes(),
+        secondBytes,
+      );
+      expect(uploaded, hasLength(2));
+      expect(uploads.listSync().whereType<File>(), hasLength(2));
+    },
+  );
+
   test('USB kabel, Wi-Fi va keraksiz tarmoqlar ajratiladi', () {
     expect(RemoteServer.interfaceLabel('usb0'), 'USB kabel');
     expect(RemoteServer.interfaceLabel('enx0a1b2c3d4e5f'), 'USB kabel');
@@ -99,12 +146,6 @@ void main() {
     expect(RemoteServer.safeUploadName('../../.bashrc'), 'bashrc');
     expect(RemoteServer.safeUploadName('a:b?.mp4'), 'a_b_.mp4');
   });
-
-  Future<void> until(bool Function() ok) async {
-    for (var i = 0; i < 100 && !ok(); i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-    }
-  }
 
   test('pult sahifasi brauzerga beriladi', () async {
     final client = HttpClient();

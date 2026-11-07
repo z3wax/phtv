@@ -22,5 +22,11 @@ add_definitions(-DAPPLICATION_ID="${APPLICATION_ID}")
 # Add dependency libraries. Add any application-specific dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter)
 target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::GTK)
+# WebKit is hosted inside the application window on Ubuntu 22.04 and 24.04.
+pkg_check_modules(WEBKIT QUIET IMPORTED_TARGET webkit2gtk-4.1)
+if(NOT WEBKIT_FOUND)
+  pkg_check_modules(WEBKIT REQUIRED IMPORTED_TARGET webkit2gtk-4.0)
+endif()
+target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::WEBKIT)
 
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")

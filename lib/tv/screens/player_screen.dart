@@ -20,31 +20,117 @@ class PlayerScreen extends StatefulWidget {
   final int index;
 
   static Route<void> route(List<MediaItem> items, int index) =>
-      PageRouteBuilder<void>(
-        pageBuilder: (_, _, _) => PlayerScreen(items: items, index: index),
-        transitionsBuilder: (_, a, _, child) =>
-            FadeTransition(opacity: a, child: child),
-      );
+      _PlayerRoute(items, index);
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
+class _PlayerRoute extends PageRouteBuilder<void> {
+  _PlayerRoute(List<MediaItem> items, int index)
+    : super(
+        pageBuilder: (_, _, _) => PlayerScreen(items: items, index: index),
+        transitionsBuilder: (_, a, _, child) =>
+            FadeTransition(opacity: a, child: child),
+      );
+
+  ValueChanged<bool>? onVisibilityChanged;
+
+  @override
+  void didChangeNext(Route<dynamic>? nextRoute) {
+    super.didChangeNext(nextRoute);
+    onVisibilityChanged?.call(isCurrent);
+  }
+
+  @override
+  void didPopNext(Route<dynamic> nextRoute) {
+    super.didPopNext(nextRoute);
+    onVisibilityChanged?.call(isCurrent);
+  }
+
+  @override
+  bool didPop(void result) {
+    final popped = super.didPop(result);
+    if (popped) onVisibilityChanged?.call(false);
+    return popped;
+  }
+}
+
 class _PlayerScreenState extends State<PlayerScreen> {
+  static _PlayerScreenState? _stateOwner;
+
   late int _i = widget.index;
   VideoPlayerController? _c;
   String? _error;
   bool _overlay = true;
   bool _slideshow = false;
+  bool _current = false;
+  bool _wantsToPlay = true;
+  int _openSeq = 0;
+  Future<void> _closing = Future<void>.value();
+  _PlayerRoute? _route;
   double _volume = 1;
-  Timer? _hide, _save, _slide;
+  Timer? _hide, _save, _slide, _watchdog, _retry;
+  Duration? _lastPosition;
+  int _stalledTicks = 0, _reconnects = 0;
   final _playFocus = FocusNode(debugLabel: 'play');
 
   MediaItem get _item => widget.items[_i];
 
   /// Jonli kanal: hozirgi manba (asosiy yoki zaxira) va urinilganlar.
   int _alt = 0;
-  DateTime? _bufferingSince;
+
+  Future<void> _checkLive() async {
+    final c = _c;
+    if (!_current ||
+        !_item.isLive ||
+        !_wantsToPlay ||
+        c == null ||
+        !c.value.isInitialized ||
+        _retry != null ||
+        _error != null) {
+      return;
+    }
+    Duration? position;
+    try {
+      position = await c.position.timeout(const Duration(seconds: 2));
+    } catch (_) {
+      if (mounted && _c == c && _current) _recoverLive();
+      return;
+    }
+    if (!mounted || _c != c || !_current || position == null) return;
+    if (_lastPosition != null && position != _lastPosition) {
+      _stalledTicks = 0;
+      _reconnects = 0;
+    } else {
+      _stalledTicks++;
+    }
+    _lastPosition = position;
+    if (_stalledTicks >= 10) _recoverLive();
+  }
+
+  bool _recoverLive() {
+    if (!_item.isLive || !_current || !_wantsToPlay) return false;
+    if (_retry != null) return true;
+    if (_reconnects >= 3) {
+      setState(
+        () => _error =
+            'Kanalga ulanib bo‘lmadi. Qayta ochish uchun OK ni bosing.',
+      );
+      return false;
+    }
+    _reconnects++;
+    final alts = TvStore.instance.alternatesFor(_item.source);
+    _alt = alts.isEmpty ? 0 : (_alt + 1) % (alts.length + 1);
+    _retry = Timer(Duration(seconds: _reconnects * 2), () {
+      _retry = null;
+      if (mounted && _current && _wantsToPlay) {
+        _open(keepSource: true, recovery: true);
+      }
+    });
+    TvServices.instance.showToast('Kanalga qayta ulanmoqda… $_reconnects / 3');
+    return true;
+  }
 
   String _sourceFor(MediaItem item) {
     if (!item.isLive || _alt == 0) return item.source;
@@ -52,25 +138,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return _alt <= alts.length ? alts[_alt - 1] : item.source;
   }
 
-  /// Manba ishlamadi yoki qotib qoldi — shu kanalning keyingi manbasi.
-  bool _tryNextSource() {
-    final item = _item;
-    if (!item.isLive) return false;
-    final alts = TvStore.instance.alternatesFor(item.source);
-    if (_alt >= alts.length) return false;
-    _alt++;
-    TvServices.instance.showToast(
-      'Boshqa manba: ${_alt + 1} / ${alts.length + 1}',
-    );
-    _open(keepSource: true);
-    return true;
-  }
-
   @override
   void initState() {
     super.initState();
     TvInput.instance.push(_onCmd);
-    _save = Timer.periodic(const Duration(seconds: 5), (_) => _remember());
+    _watchdog = Timer.periodic(const Duration(seconds: 2), (_) => _checkLive());
+    _save = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_current) _remember();
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _open();
@@ -79,15 +154,85 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is _PlayerRoute) {
+      _route = route..onVisibilityChanged = _setCurrent;
+    }
+    _setCurrent(ModalRoute.isCurrentOf(context) ?? true);
+  }
+
+  void _setCurrent(bool current) {
+    if (!mounted) return;
+    if (current == _current) return;
+    _current = current;
+    final c = _c;
+    if (current) {
+      _publishState();
+      if (c != null && c.value.isInitialized && _wantsToPlay) {
+        // Boshqa yo‘lning pleyeri ham shu kadrda pauzaga o‘tsin.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _current && _c == c && _wantsToPlay) {
+            unawaited(c.play());
+          }
+        });
+      }
+      _scheduleSlide();
+      _showOverlay();
+    } else {
+      _retry?.cancel();
+      _retry = null;
+      _stalledTicks = 0;
+      _lastPosition = null;
+      _remember();
+      _hide?.cancel();
+      _slide?.cancel();
+      if (c != null) unawaited(c.pause());
+      _releaseState();
+    }
+  }
+
+  void _publishState() {
+    if (!_current) return;
+    _stateOwner = this;
+    TvServices.instance.updateState({
+      'title': _item.title,
+      'kind': _item.kind.name,
+    });
+  }
+
+  void _releaseState() {
+    if (_stateOwner != this) return;
+    _stateOwner = null;
+    TvServices.instance.updateState({'title': null, 'kind': null});
+  }
+
+  void _scheduleSlide() {
+    _slide?.cancel();
+    if (mounted && _current && _slideshow && _item.kind == MediaKind.image) {
+      _slide = Timer(const Duration(seconds: 6), () {
+        if (mounted && _current) _step(1);
+      });
+    }
+  }
+
+  @override
   void dispose() {
+    _openSeq++;
+    _current = false;
+    _route?.onVisibilityChanged = null;
     TvInput.instance.remove(_onCmd);
     _remember();
     _hide?.cancel();
     _save?.cancel();
     _slide?.cancel();
-    _c?.dispose();
+    _watchdog?.cancel();
+    _retry?.cancel();
+    final controller = _c;
+    if (controller != null) unawaited(_closeController(controller));
     _playFocus.dispose();
-    TvServices.instance.updateState({'title': null, 'kind': null});
+    _releaseState();
     super.dispose();
   }
 
@@ -100,25 +245,43 @@ class _PlayerScreenState extends State<PlayerScreen> {
     TvStore.instance.remember(_item);
   }
 
-  Future<void> _open({bool keepSource = false}) async {
+  Future<void> _closeController(VideoPlayerController controller) async {
+    try {
+      await controller.pause();
+    } catch (_) {}
+    try {
+      await controller.dispose();
+    } catch (error) {
+      debugPrint('Player cleanup: $error');
+    }
+  }
+
+  Future<void> _open({bool keepSource = false, bool recovery = false}) async {
+    if (!mounted) return;
+    final seq = ++_openSeq;
     if (!keepSource) _alt = 0;
-    _bufferingSince = null;
+    _wantsToPlay = true;
+    _ended = false;
+    _retry?.cancel();
+    _retry = null;
+    _stalledTicks = 0;
+    _lastPosition = null;
+    if (!recovery) _reconnects = 0;
     final old = _c;
     _c = null;
     _slide?.cancel();
     setState(() => _error = null);
-    await old?.dispose();
+    if (old != null) {
+      _closing = _closing.then((_) => _closeController(old));
+    }
+    await _closing;
+    if (!mounted || seq != _openSeq) return;
     final item = _item;
     TvStore.instance.remember(item);
-    TvServices.instance.updateState({
-      'title': item.title,
-      'kind': item.kind.name,
-    });
+    _publishState();
     _showOverlay();
     if (item.kind == MediaKind.image) {
-      if (_slideshow) {
-        _slide = Timer(const Duration(seconds: 6), () => _step(1));
-      }
+      _scheduleSlide();
       return;
     }
     final source = _sourceFor(item);
@@ -132,17 +295,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(() => _c = c);
     try {
       await c.initialize().timeout(const Duration(seconds: 25));
-      if (!mounted || _c != c) return;
+      if (!mounted || _c != c || seq != _openSeq) return;
       if (!item.isLive && item.positionMs > 5000 && item.progress < 0.95) {
         await c.seekTo(Duration(milliseconds: item.positionMs));
       }
+      if (!mounted || _c != c || seq != _openSeq) return;
       await c.setVolume(_volume);
-      await c.play();
+      if (!mounted || _c != c || seq != _openSeq) return;
+      if (_current && _wantsToPlay) await c.play();
+      if (!mounted || _c != c || seq != _openSeq) return;
       c.addListener(() => _onTick(c));
       setState(() {});
     } catch (_) {
       if (!mounted || _c != c) return;
-      if (_tryNextSource()) return;
+      if (item.isLive && _recoverLive()) return;
       setState(
         () => _error = item.isLive
             ? 'Kanal hozir efirda emas yoki manzil ishlamayapti'
@@ -153,20 +319,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   bool _ended = false;
   void _onTick(VideoPlayerController c) {
-    final v = c.value;
-    // Jonli kanal 15 soniyadan ko‘p qotib qolsa — zaxira manbaga o‘tamiz.
-    if (_item.isLive && v.isBuffering) {
-      _bufferingSince ??= DateTime.now();
-      if (DateTime.now().difference(_bufferingSince!).inSeconds > 15 &&
-          _c == c) {
-        _bufferingSince = null;
-        if (_tryNextSource()) return;
-      }
-    } else {
-      _bufferingSince = null;
+    if (!mounted || _c != c) return;
+    if (!_current) {
+      if (c.value.isPlaying) unawaited(c.pause());
+      return;
     }
+    final v = c.value;
     if (v.hasError && _error == null && mounted && _c == c) {
-      if (_tryNextSource()) return;
+      if (_item.isLive && _recoverLive()) return;
       setState(
         () =>
             _error = 'Ijro to‘xtadi: ${v.errorDescription ?? 'tarmoq xatosi'}',
@@ -178,6 +338,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
         v.position >= v.duration &&
         !v.isPlaying;
     if (done && !_ended) {
+      if (_item.isLive) {
+        _recoverLive();
+        return;
+      }
       _ended = true;
       _item.positionMs = 0;
       if (widget.items.length > 1 && _i < widget.items.length - 1) _step(1);
@@ -196,8 +360,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _toggle() {
     final c = _c;
-    if (c == null || !c.value.isInitialized) return;
-    c.value.isPlaying ? c.pause() : c.play();
+    if (c == null || !c.value.isInitialized || !_current) return;
+    _wantsToPlay = !c.value.isPlaying;
+    _wantsToPlay ? c.play() : c.pause();
     _showOverlay();
     setState(() {});
   }
@@ -361,13 +526,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       setState(() => TvStore.instance.toggleFavorite(item)),
                   onSlideshow: () {
                     setState(() => _slideshow = !_slideshow);
-                    _slide?.cancel();
-                    if (_slideshow) {
-                      _slide = Timer(
-                        const Duration(seconds: 6),
-                        () => _step(1),
-                      );
-                    }
+                    _scheduleSlide();
                   },
                 ),
               ),
