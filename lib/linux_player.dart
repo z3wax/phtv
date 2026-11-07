@@ -78,7 +78,17 @@ class TvLinuxPlayer extends VideoPlayerPlatform {
       await s.cancel();
     }
     await player?.dispose();
-    await _events.remove(playerId)?.close();
+    final events = _events.remove(playerId);
+    if (events != null) {
+      // A failed create or a cancelled video controller may have no subscriber.
+      // Waiting on close() then never completes for a single-subscription stream.
+      final closing = events.close();
+      if (events.hasListener) {
+        await closing;
+      } else {
+        unawaited(closing);
+      }
+    }
   }
 
   @override
