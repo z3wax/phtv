@@ -371,25 +371,6 @@ static void browser_method_cb(FlMethodChannel* channel, FlMethodCall* call,
     g_object_ref_sink(view);
     // A route can load before its opening transition has made it visible.
     webkit_web_view_set_is_muted(view, TRUE);
-    WebKitUserScript* remote_input = webkit_user_script_new(R"JS(
-      addEventListener('message', function(event) {
-        var d=event.data;
-        if(event.source!==parent || !d || d.telefonTvRemoteClick!==true) return;
-        var x=d.fx*innerWidth,y=d.fy*innerHeight,e=document.elementFromPoint(x,y);
-        if(!e) return;
-        if(e.tagName==='IFRAME') {
-          var r=e.getBoundingClientRect();
-          e.contentWindow.postMessage({telefonTvRemoteClick:true,fx:(x-r.left)/r.width,fy:(y-r.top)/r.height},'*');
-        } else {
-          e.focus();
-          ['mousedown','mouseup'].forEach(function(n){e.dispatchEvent(new MouseEvent(n,{bubbles:true,clientX:x,clientY:y}));});
-          e.click();
-        }
-      });
-    )JS", WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
-      WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START, nullptr, nullptr);
-    webkit_user_content_manager_add_script(webkit_web_view_get_user_content_manager(view), remote_input);
-    webkit_user_script_unref(remote_input);
     WebKitSettings* settings = webkit_web_view_get_settings(view);
     webkit_settings_set_enable_javascript(settings, TRUE);
     webkit_settings_set_media_playback_requires_user_gesture(settings, FALSE);

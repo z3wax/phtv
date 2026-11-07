@@ -155,6 +155,7 @@ class TvLinuxPlayer extends VideoPlayerPlatform {
 
     var width = -1, height = -1;
     var gotTracks = false;
+    var errorReported = false;
     var waitedForDuration = false;
     Timer? durationWait;
 
@@ -257,13 +258,14 @@ class TvLinuxPlayer extends VideoPlayerPlatform {
       )
       ..add(
         player.stream.error.listen((message) {
-          debugPrint('mpv: $message');
-          // Ochilgandan keyingi mpv xabarlari ijroni to‘xtatmaydi.
-          if (!isFatal(message) ||
+          if (errorReported ||
+              !isFatal(message) ||
               events.isClosed ||
               !_players.containsKey(id)) {
             return;
           }
+          errorReported = true;
+          debugPrint('mpv: $message');
           events.addError(PlatformException(code: 'mpv', message: message));
         }),
       );

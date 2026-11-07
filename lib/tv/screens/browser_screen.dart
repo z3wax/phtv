@@ -546,11 +546,6 @@ class _BrowserScreenState extends State<BrowserScreen>
   var x = fx * window.innerWidth, y = fy * window.innerHeight;
   var e = document.elementFromPoint(x, y);
   if (!e) return '';
-  if (${_linux != null} && e.tagName === 'IFRAME') {
-    var r=e.getBoundingClientRect();
-    e.contentWindow.postMessage({telefonTvRemoteClick:true,fx:(x-r.left)/r.width,fy:(y-r.top)/r.height},'*');
-    return 'frameclick';
-  }
   var t = e.closest('input,textarea,[contenteditable="true"]');
   var skip = {submit:1, button:1, checkbox:1, radio:1, range:1, file:1, image:1, reset:1};
   if (t && !skip[t.type]) { t.focus(); return 'input:' + (t.value || ''); }
