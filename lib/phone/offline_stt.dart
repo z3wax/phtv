@@ -14,8 +14,10 @@ enum SttKind {
   /// NeMo CTC: bitta `model.onnx` + `tokens.txt`.
   nemoCtc,
 
-  /// Zipformer transducer: encoder + decoder + joiner + `tokens.txt`.
-  transducer,
+  /// Oqimli (streaming) Zipformer transducer: encoder + decoder + joiner +
+  /// `tokens.txt`. Oqimsiz (offline) tanuvchi bilan ochilmaydi — sherpa-onnx
+  /// jarayonni to‘xtatadi, shuning uchun turi aniq ko‘rsatiladi.
+  streamingTransducer,
 }
 
 /// Telefonda, internetsiz o‘zbekcha nutqni tanish modeli.
@@ -87,14 +89,15 @@ class UzbekSttModel {
     about: 'Kamroq joy va xotira. Kuchsiz telefonlar uchun.',
     credit: 'Vosk Zipformer2 (uz, Alpha Cephei), Apache 2.0',
     repo: 'alphacep/vosk-model-small-streaming-uz',
-    revision: 'main',
+    // Hugging Face commit (o‘zgarmas).
+    revision: 'e0417cabfbbac4efdc34e7aba367501d126ae79c',
     files: [
       ('am-onnx/encoder.onnx', 90994145),
       ('am-onnx/decoder.onnx', 2093080),
       ('am-onnx/joiner.onnx', 1026462),
       ('lang/tokens.txt', 3957),
     ],
-    kind: SttKind.transducer,
+    kind: SttKind.streamingTransducer,
   );
 
   static const all = [accurate, light];
@@ -789,30 +792,8 @@ abstract class UzbekRecognizer {
         modelType: 'nemo_ctc',
       ),
     ),
-    SttKind.transducer => _transducer(dir),
+    SttKind.streamingTransducer => _OnlineUzbek(dir),
   };
-
-  /// Zipformer: avval butun gapni bir martada (offline), bo‘lmasa
-  /// oqimli (online) model sifatida.
-  static UzbekRecognizer _transducer(String dir) {
-    try {
-      return _OfflineUzbek(
-        sherpa.OfflineModelConfig(
-          transducer: sherpa.OfflineTransducerModelConfig(
-            encoder: '$dir/encoder.onnx',
-            decoder: '$dir/decoder.onnx',
-            joiner: '$dir/joiner.onnx',
-          ),
-          tokens: '$dir/tokens.txt',
-          numThreads: _threads,
-          debug: false,
-          modelType: 'transducer',
-        ),
-      );
-    } catch (_) {
-      return _OnlineUzbek(dir);
-    }
-  }
 
   /// Bitta yozuvni matnga aylantiradi.
   String recognize(Float32List samples);

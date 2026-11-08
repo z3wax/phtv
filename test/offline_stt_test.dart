@@ -144,7 +144,7 @@ void main() {
         'am-onnx/decoder.onnx',
         'am-onnx/joiner.onnx',
         'lang/tokens.txt',
-      ], SttKind.transducer);
+      ], SttKind.streamingTransducer);
       final stt = OfflineStt.instance;
       previousModels = stt.models;
       stt.models = [ctc, zip];
