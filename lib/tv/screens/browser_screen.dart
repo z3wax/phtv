@@ -231,6 +231,8 @@ class _BrowserScreenState extends State<BrowserScreen>
   Future<void> _createLinuxView() async {
     final linux = LinuxBrowserController(
       userAgent: widget.tvMode ? tvUserAgent : _desktopUa,
+      // YouTube TV: H.264 va 1080p gacha — hujjat boshida, sahifadan oldin.
+      userScript: widget.tvMode ? youtubeVideoLimitScript : null,
     );
     _linux = linux;
     linux
@@ -348,8 +350,12 @@ class _BrowserScreenState extends State<BrowserScreen>
       ..setUserAgent(widget.tvMode ? tvUserAgent : _desktopUa)
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageStarted: (_) => _applyAudioLevel(),
+          onPageStarted: (_) {
+            _limitVideo();
+            _applyAudioLevel();
+          },
           onProgress: (p) {
+            _limitVideo();
             if (mounted) setState(() => _progress = p);
           },
           onUrlChange: (change) {
@@ -370,6 +376,7 @@ class _BrowserScreenState extends State<BrowserScreen>
                 'title': _title.isEmpty ? null : _title,
               });
             }
+            _limitVideo();
             _applyAudioLevel();
           },
         ),
@@ -379,6 +386,15 @@ class _BrowserScreenState extends State<BrowserScreen>
       platform.setMediaPlaybackRequiresUserGesture(false);
     }
     return c;
+  }
+
+  /// YouTube TV: video faqat H.264 va 1080p gacha (4K AV1/VP9 qora ekran va
+  /// qotishga olib keladi). Bu yerda hujjat boshida qo‘shib bo‘lmaydi —
+  /// sahifa yuklanayotganda bir necha marta (skript bir martagina ishlaydi).
+  /// Linux’da [LinuxBrowserController.new] `userScript` orqali qo‘shiladi.
+  void _limitVideo() {
+    if (!widget.tvMode || _linux != null) return;
+    unawaited(_js(youtubeVideoLimitScript));
   }
 
   void _applyAudioLevel() {

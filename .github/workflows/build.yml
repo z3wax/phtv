@@ -317,6 +317,8 @@ jobs:
 
           **Ubuntu kompyuter (HDMI → televizor):** `sudo apt install libmpv2 libwebkit2gtk-4.1-0 gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad` (22.04 da `libmpv2` o‘rniga `libmpv1`). Ovozli javob uchun `sudo apt install espeak-ng`. Arxivni oching va `./install.sh --autostart`.
 
+          **Tuzatildi:** YouTube TV’da video qora bo‘lib qotishi (ovoz bor, tasvir yo‘q) — endi H.264 va 1080p gacha o‘ynatiladi, 4K AV1/VP9 so‘ralmaydi.
+
           **Yangiliklar:** Telefonda internetsiz o‘zbekcha nutqni tanish — ikki model: “Aniq” (NVIDIA FastConformer, 174 MB) va “Yengil” (Vosk Zipformer2, 94 MB), bir marta yuklanadi: pultdagi 🎤 ni bosib turing → “Internetsiz o‘zbekcha nutq” → Yuklab olish. Bepul AI (kalitsiz, GPT nano) endi dolzarb savollarda internetdan qidirib javob beradi (yangiliklar, narxlar, natijalar).
 
           **Avvalgi yangiliklar:** saytlarda pult bilan televizordagidek tanlash (sichqonchasiz), YouTube — televizor ko‘rinishida (youtube.com/tv), iDub — idub.tv, “z3wax tv” yuklanish ekrani.

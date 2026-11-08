@@ -377,6 +377,17 @@ static void browser_method_cb(FlMethodChannel* channel, FlMethodCall* call,
     webkit_settings_set_enable_fullscreen(settings, TRUE);
     const gchar* user_agent = browser_string(args, "userAgent");
     if (*user_agent != '\0') webkit_settings_set_user_agent(settings, user_agent);
+    // Sahifa skriptlaridan oldin ishlaydigan skript (masalan, YouTube TV’da
+    // video formatini H.264 / 1080p bilan cheklash).
+    const gchar* user_script = browser_string(args, "userScript");
+    if (*user_script != '\0') {
+      WebKitUserContentManager* content = webkit_web_view_get_user_content_manager(view);
+      WebKitUserScript* script = webkit_user_script_new(
+          user_script, WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+          WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START, nullptr, nullptr);
+      webkit_user_content_manager_add_script(content, script);
+      webkit_user_script_unref(script);
+    }
     GdkRGBA black = {0, 0, 0, 1};
     webkit_web_view_set_background_color(view, &black);
     browser = new BrowserView{self, id, view, {0, 0, 1, 1}, FALSE, FALSE};

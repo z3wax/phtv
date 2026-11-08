@@ -352,7 +352,9 @@ Samsung telefonlar HDMI ulanganda DeX rejimini ochishi mumkin: bildirishnomadan
 - **YouTube**: kompyuter sayti emas, aynan televizor ko‘rinishi
   (youtube.com/tv) ochiladi — ↑↓←→ va OK bilan yuriladi, Orqaga — bir
   qadam ortga, tez ikki marta — chiqish. YouTube havolalari ham (masalan,
-  youtube.com/watch, youtu.be) shu ko‘rinishda ochiladi.
+  youtube.com/watch, youtu.be) shu ko‘rinishda ochiladi. Video H.264 va
+  1080p gacha o‘ynatiladi: televizor nomi bilan YouTube 4K AV1/VP9 berardi,
+  kompyuter va telefon uni dekodlashga ulgurmay, tasvir qora bo‘lib qotardi.
 - **Kino saytlari va brauzer**: Android, iPhone, Mac va Ubuntu’da ilovaning
   o‘z brauzerida. Sichqoncha kursori yo‘q — televizordagidek odatiy tanlash:
   ↑↓←→ — keyingi havola yoki tugma ajratiladi (kerak bo‘lsa sahifa

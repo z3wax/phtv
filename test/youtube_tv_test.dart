@@ -37,6 +37,17 @@ void main() {
     );
   });
 
+  test('YouTube TV video cheklovi: H.264, 1080p gacha', () {
+    // Haqiqiy brauzerda ham tekshirilgan: AV1/VP9/4K — yo‘q, H.264 1080p — ha.
+    expect(youtubeVideoLimitScript, contains('MediaSource.isTypeSupported'));
+    expect(youtubeVideoLimitScript, contains('canPlayType'));
+    expect(youtubeVideoLimitScript, contains('decodingInfo'));
+    expect(youtubeVideoLimitScript, contains('av01'));
+    expect(youtubeVideoLimitScript, contains('vp9'));
+    expect(youtubeVideoLimitScript, contains('MAXH=1080'));
+    expect(youtubeVideoLimitScript, isNot(contains('avc1')));
+  });
+
   test('iDub — asl sayt manzili bilan', () {
     final idub = defaultSites.firstWhere((s) => s.id == 'idub');
     expect(idub.url, 'https://idub.tv/');

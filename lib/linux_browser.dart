@@ -8,7 +8,10 @@ import 'package:flutter/services.dart';
 /// browser route owns a controller, so returning to a previous page retains its
 /// navigation history and document instead of opening another desktop window.
 class LinuxBrowserController {
-  LinuxBrowserController({String? userAgent}) : id = ++_nextId {
+  /// [userScript] — har bir sahifa (va ichki freym) skriptlaridan oldin
+  /// ishlaydigan JavaScript.
+  LinuxBrowserController({String? userAgent, String? userScript})
+    : id = ++_nextId {
     _controllers[id] = this;
     if (!_listening) {
       _channel.setMethodCallHandler(_onMethod);
@@ -17,6 +20,7 @@ class LinuxBrowserController {
     _ready = _channel.invokeMethod<void>('create', {
       'id': id,
       if (userAgent != null) 'userAgent': userAgent,
+      if (userScript != null) 'userScript': userScript,
     });
   }
 

@@ -132,6 +132,8 @@ void main() {
     expect(find.byType(BrowserScreen), findsOneWidget);
     final create = calls.firstWhere((c) => c.method == 'create');
     expect((create.arguments as Map)['userAgent'], tvUserAgent);
+    // Video H.264 / 1080p bilan cheklanadi — sahifa skriptlaridan oldin.
+    expect((create.arguments as Map)['userScript'], youtubeVideoLimitScript);
     final load = calls.firstWhere((c) => c.method == 'load');
     final url = Uri.parse((load.arguments as Map)['url'] as String);
     expect(url.host, 'www.youtube.com');
@@ -183,6 +185,7 @@ void main() {
     await tester.pumpAndSettle();
     final create = calls.firstWhere((c) => c.method == 'create');
     expect((create.arguments as Map)['userAgent'], isNot(tvUserAgent));
+    expect((create.arguments as Map).containsKey('userScript'), isFalse);
 
     TvInput.instance.send(Cmd.down);
     TvInput.instance.send(Cmd.right);
