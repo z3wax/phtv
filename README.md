@@ -30,6 +30,29 @@ va tinglab ko‘rish: Sozlamalar → AI yordamchi. Xizmat mustaqil onlayn xizmat
 uning mavjudligi va limitlari o‘zgarishi mumkin. Ulanmasa, qurilma ovozi ishlatiladi.
 TV, video, brauzer va AI bir xil saqlangan ovoz foizini ishlatadi.
 
+### Internetsiz o‘zbekcha nutq (telefonda)
+
+Telefon pultida o‘zbekcha gapirilganini telefonning o‘zi, internetsiz taniydi:
+**NVIDIA FastConformer** (o‘zbekcha, 115M parametr, int8 — **174 MB**). Bu
+o‘zbekcha uchun ochiq modellar orasida eng aniqlaridan biri (FLEURS ~11%,
+Common Voice ~7% so‘z xatosi; Whisper large-v3 da 100% dan ortiq) va shunday
+sifatdagilar ichida eng kichigi. Model ilovaga qo‘shilmagan — bir marta
+yuklanadi: pultdagi 🎤 ni **bosib turing** → “Internetsiz o‘zbekcha nutq” →
+**Yuklab olish** (Wi-Fi tavsiya etiladi; uzilsa, qolgan joyidan davom etadi).
+Birinchi marta o‘zbekcha gapirganda ham taklif qilinadi. Gap tugaganini o‘zi
+sezadi (~1 soniya jimlik), aytilayotgan so‘zlar ekranda ko‘rinib boradi.
+O‘chirish ham shu menyuda. Rus va ingliz tili — telefon tizimi orqali.
+Litsenziya: CC BY 4.0 — [third_party/stt_uz_fastconformer/NOTICE](third_party/stt_uz_fastconformer/NOTICE).
+
+### Internet qidiruvi
+
+Bepul (kalitsiz, GPT nano), Groq va boshqa AI xizmatlari dolzarb savollarda
+(yangilik, narx, kurs, o‘yin natijasi…) avval internetdan qidiradi
+(DuckDuckGo, kalitsiz) va javobni topilgan ma’lumotga tayanib beradi. Gemini’da
+Google qidiruvi ishlaydi. She’r, ertak, tarjima kabi ishlarda va ochiq sahifa
+haqidagi savolda qidirilmaydi. O‘chirish: Sozlamalar → AI yordamchi →
+Internet qidiruvi bilan javob.
+
 Pult klaviaturasida yozilgan (yoki klaviatura mikrofoni bilan aytilgan) matn
 YouTube TV qidiruviga tushadi; pultdagi asosiy mikrofon esa yordamchiga buyruq
 beradi. O‘zbek kirill matni lotinga o‘tkaziladi

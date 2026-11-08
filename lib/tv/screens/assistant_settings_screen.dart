@@ -116,17 +116,18 @@ class AssistantSettingsScreen extends StatelessWidget {
                               ),
                             ),
                           ),
-                        if (c.provider == AiProvider.gemini)
-                          _Row(
-                            icon: Icons.travel_explore_rounded,
-                            title: 'Google qidiruvi bilan javob',
-                            subtitle:
-                                'Yangiliklar, narxlar, o‘yin natijalari — hozirgi ma’lumot',
-                            value: c.webSearch ? 'Yoniq' : 'O‘chiq',
-                            onTap: () => store.updateAssistant(
-                              c.copyWith(webSearch: !c.webSearch),
-                            ),
+                        _Row(
+                          icon: Icons.travel_explore_rounded,
+                          title: c.provider == AiProvider.gemini
+                              ? 'Google qidiruvi bilan javob'
+                              : 'Internet qidiruvi bilan javob',
+                          subtitle:
+                              'Yangiliklar, narxlar, o‘yin natijalari — hozirgi ma’lumot',
+                          value: c.webSearch ? 'Yoniq' : 'O‘chiq',
+                          onTap: () => store.updateAssistant(
+                            c.copyWith(webSearch: !c.webSearch),
                           ),
+                        ),
                         _Row(
                           icon: Icons.language_rounded,
                           title: 'Javob tili',

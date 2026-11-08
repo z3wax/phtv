@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'offline_stt.dart';
+
 /// Ovozni tanish hodisasi: ready, partial (eshitilayotgan so‘zlar),
 /// final (tayyor gap), error (permission / language / nomatch / network…).
 class VoiceEvent {
@@ -12,8 +14,11 @@ class VoiceEvent {
   final String text;
 }
 
-/// Telefon mikrofoni → matn. Telefonning o‘z tizimi ishlaydi
-/// (Android: Google, iPhone: Siri dvigateli) — qo‘shimcha kutubxonasiz.
+/// Telefon mikrofoni → matn.
+///
+/// * O‘zbekcha va internetsiz model o‘rnatilgan bo‘lsa — telefonning o‘zida,
+///   internetsiz ([OfflineStt], NVIDIA FastConformer).
+/// * Aks holda — telefon tizimi (Android: Google, iPhone: Siri dvigateli).
 class VoiceInput {
   VoiceInput._();
   static final instance = VoiceInput._();
@@ -48,10 +53,21 @@ class VoiceInput {
     });
   }
 
+  /// Hozirgi tinglash internetsiz modelda.
+  bool _offline = false;
+
   /// Tinglashni boshlaydi. Ovozni tanish bo‘lmasa — false (yozib so‘raladi).
   Future<bool> start(String locale) async {
     if (!supported) return false;
     _bind();
+    _offline = false;
+    if (locale == 'uz-UZ' &&
+        await OfflineStt.instance.start(
+          (type, text) => _events.add(VoiceEvent(type, text)),
+        )) {
+      _offline = true;
+      return true;
+    }
     try {
       return await _channel.invokeMethod<bool>('start', {
             'locale': locale,
@@ -67,12 +83,14 @@ class VoiceInput {
 
   /// Gapirib bo‘ldim — natija `final` hodisasi bilan keladi.
   Future<void> stop() async {
+    if (_offline) return OfflineStt.instance.stop();
     try {
       await _channel.invokeMethod<bool>('stop');
     } catch (_) {}
   }
 
   Future<void> cancel() async {
+    if (_offline) return OfflineStt.instance.cancel();
     try {
       await _channel.invokeMethod<bool>('cancel');
     } catch (_) {}

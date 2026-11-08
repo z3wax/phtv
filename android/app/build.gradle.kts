@@ -30,6 +30,14 @@ android {
         versionName = flutter.versionName
     }
 
+    // Native kutubxonalar (internetsiz nutq — sherpa-onnx, Flutter) APK
+    // ichida siqilgan: yuklab olish hajmi kichikroq, o‘rnatishda ochiladi.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.

@@ -10,6 +10,10 @@ on:
         description: 'Eski barcha release va teglarni o‘chirib, faqat yangisini qoldirish'
         type: boolean
         default: false
+      stt_check:
+        description: 'Internetsiz o‘zbekcha nutq modelini haqiqiy ovozda tekshirish'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -204,11 +208,79 @@ jobs:
           path: dist/*.dmg
           if-no-files-found: error
 
+  # Qo‘lda (stt_check): telefon yuklab oladigan o‘zbekcha nutq modeli
+  # ilovadagi manzil va sherpa-onnx sozlamasi bilan haqiqatan ishlashini
+  # o‘zbekcha ovozli jumlalarda tekshiradi. Release’ga ta’sir qilmaydi.
+  stt:
+    name: O‘zbekcha nutq modeli (internetsiz)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.stt_check }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Modelni ilovadagi manzildan yuklash
+        run: |
+          repo=$(grep -oP "static const repo = '\K[^']+" lib/phone/offline_stt.dart)
+          rev=$(grep -oP "static const revision = '\K[^']+" lib/phone/offline_stt.dart)
+          echo "repo=$repo revision=$rev"
+          curl -fsSL "https://huggingface.co/api/models/$repo/revision/$rev?blobs=true" \
+            | jq '{sha, lastModified, files: [.siblings[] | {rfilename, size, sha256: .lfs.sha256}]}' || true
+          mkdir -p model
+          for f in model.int8.onnx tokens.txt; do
+            curl -fSL --retry 3 -o "model/$f" "https://huggingface.co/$repo/resolve/$rev/$f"
+          done
+          ls -l model
+          sha256sum model/*
+          # Ilova tekshiradigan hajmlar bilan bir xilmi.
+          for f in model.int8.onnx tokens.txt; do
+            want=$(grep -oP "\('$f', \K[0-9]+" lib/phone/offline_stt.dart)
+            got=$(stat -c %s "model/$f")
+            echo "$f: kutilgan $want, yuklangan $got"
+            [ "$want" = "$got" ]
+          done
+          echo "STT_MODEL_DIR=$PWD/model" >> "$GITHUB_ENV"
+      - name: O‘zbekcha sinov ovozlari (Edge TTS)
+        run: |
+          pip install --quiet edge-tts
+          sudo apt-get install -y --no-install-recommends ffmpeg > /dev/null
+          mkdir -p wav
+          : > wav/list.txt
+          i=0
+          while IFS= read -r text; do
+            [ -z "$text" ] && continue
+            i=$((i+1))
+            for voice in uz-UZ-MadinaNeural uz-UZ-SardorNeural; do
+              edge-tts --voice "$voice" --text "$text" --write-media "wav/$i-$voice.mp3"
+              ffmpeg -loglevel error -y -i "wav/$i-$voice.mp3" -ar 16000 -ac 1 -sample_fmt s16 "wav/$i-$voice.wav"
+              echo "$PWD/wav/$i-$voice.wav|$text" >> wav/list.txt
+            done
+          done <<'TXT'
+          Bugun Toshkentda havo qanday bo‘ladi
+          Ovozni biroz pasaytir
+          Sevimli kanalni yoqib ber
+          Menga o‘zbekcha qo‘shiq qo‘yib ber
+          Ertaga ertalab soat yettida uyg‘ot
+          TXT
+          cat wav/list.txt
+          echo "STT_WAVS=$PWD/wav/list.txt" >> "$GITHUB_ENV"
+      - name: Internetsiz tanish (ilovadagi sherpa-onnx sozlamasi bilan)
+        run: |
+          lib=$(dirname "$(find ~/.pub-cache -path '*sherpa_onnx_linux*/linux/x64/libsherpa-onnx-c-api.so' | head -1)")
+          echo "SHERPA_LIB_DIR=$lib"
+          SHERPA_LIB_DIR="$lib" LD_LIBRARY_PATH="$lib" \
+            flutter test test/offline_stt_model_test.dart --reporter expanded
+
   # Qo‘lda ishga tushirilganda (clean_releases): eski barcha release va teglar
   # o‘chiriladi, keyin Releases sahifasida faqat yangi yig‘ilish qoladi.
   cleanup:
     name: Eski release’larni tozalash
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.clean_releases }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.clean_releases && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -233,7 +305,9 @@ jobs:
     name: Releases’ga joylash
     needs: [android, ios, linux, macos, cleanup]
     # Tozalash o‘tkazib yuborilsa ham (oddiy push) release qo‘yiladi.
-    if: ${{ !cancelled() && !failure() }}
+    # Release faqat main’dan: boshqa branch’da qo‘lda ishga tushirish —
+    # faqat yig‘ilishni tekshirish.
+    if: ${{ !cancelled() && !failure() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -259,7 +333,9 @@ jobs:
 
           **Ubuntu kompyuter (HDMI → televizor):** `sudo apt install libmpv2 libwebkit2gtk-4.1-0 gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad` (22.04 da `libmpv2` o‘rniga `libmpv1`). Ovozli javob uchun `sudo apt install espeak-ng`. Arxivni oching va `./install.sh --autostart`.
 
-          **Yangiliklar:** Saytlarda sichqoncha kursori yo‘q — pultning ↑↓←→ tugmalari bilan televizordagidek tanlash, OK — bosish, matn maydonida OK — pultda yozish. YouTube endi kompyuter sayti emas, televizor ko‘rinishida (youtube.com/tv) ochiladi. iDub — asl manzil (idub.tv). Tizim yoqilganda, televizor ulanganda va uyqudan uyg‘onganda — “z3wax tv” yuklanish ekrani.
+          **Yangiliklar:** Telefonda internetsiz o‘zbekcha nutqni tanish — NVIDIA FastConformer modeli (174 MB, bir marta yuklanadi): pultdagi 🎤 ni bosib turing → “Internetsiz o‘zbekcha nutq” → Yuklab olish. Bepul AI (kalitsiz, GPT nano) endi dolzarb savollarda internetdan qidirib javob beradi (yangiliklar, narxlar, natijalar).
+
+          **Avvalgi yangiliklar:** saytlarda pult bilan televizordagidek tanlash (sichqonchasiz), YouTube — televizor ko‘rinishida (youtube.com/tv), iDub — idub.tv, “z3wax tv” yuklanish ekrani.
 
           **AI yordamchi:** pultdagi 🎤 — gapiring. Kalitsiz darrov ishlaydi; tezroq va aqlliroq bo‘lishi uchun Sozlamalar → AI yordamchi → Google Gemini (aistudio.google.com/apikey) yoki Groq (console.groq.com/keys) bepul kaliti.
 

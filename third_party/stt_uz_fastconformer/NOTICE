@@ -1,0 +1,18 @@
+Internetsiz o‘zbekcha nutqni tanish modeli (telefon ilovasi yuklab oladi,
+repozitoriyga kiritilmagan):
+
+  STT Uz FastConformer Hybrid Transducer-CTC Large P&C
+  by NVIDIA Corporation, licensed under CC BY 4.0
+  https://creativecommons.org/licenses/by/4.0/
+  Original: https://huggingface.co/nvidia/stt_uz_fastconformer_hybrid_large_pc
+
+Ilova sherpa-onnx uchun tayyorlangan nusxani yuklab oladi:
+  https://huggingface.co/algorithco/stt_uz_fastconformer_hybrid_large_pc
+  (model.int8.onnx, tokens.txt)
+
+O‘zgarishlar (o‘sha nusxa muallifi ko‘rsatganidek): modelning CTC qismi ONNX’ga
+eksport qilingan (OpenVoiceOS), sherpa-onnx o‘qiydigan metama’lumotlar
+qo‘shilgan va MatMul og‘irliklari 8 bitga kvantlangan. Model qayta
+o‘qitilmagan. z3wax TV modelni o‘zgartirmaydi.
+
+Ishga tushirish kutubxonasi: sherpa-onnx (k2-fsa), Apache-2.0.

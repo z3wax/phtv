@@ -22,6 +22,7 @@ import '../weather.dart';
 import 'ai.dart';
 import 'intents.dart';
 import 'tts.dart';
+import 'web_search.dart';
 
 enum AssistPhase { idle, listening, thinking, answering, done, error }
 
@@ -43,12 +44,15 @@ class AssistState {
 ///    oqim bo‘lib keladi, ekranda va ovozda.
 /// 3. Suhbatni eslab qoladi (“uning yoshi nechada?”) va brauzerda ochiq
 ///    sahifa haqida savolga javob beradi.
+/// 4. Dolzarb savollarda internetdan qidiradi: Gemini — Google qidiruvi,
+///    bepul GPT va boshqalar — DuckDuckGo natijalari.
 class Assistant {
   Assistant._();
   static final instance = Assistant._();
 
   final state = ValueNotifier<AssistState>(const AssistState(AssistPhase.idle));
   AiClient client = AiClient();
+  InternetSearch webSearch = InternetSearch();
   final history = <AiTurn>[];
 
   /// Brauzer ochiq bo‘lsa — sahifa nomi, manzili va matni.
@@ -158,6 +162,11 @@ class Assistant {
       AiTurn(user: true, text: userText),
     ];
     final system = systemPrompt();
+    // Internet qidiruvi — faqat Google qidiruvi yo‘q xizmat navbati kelsa,
+    // bir marta (zaxira xizmatga o‘tilsa ham qayta qidirilmaydi).
+    Future<String?>? searching;
+    Future<String?> webContext() =>
+        searching ??= _webContext(text, onPage: context?.isNotEmpty ?? false);
     final buf = StringBuffer();
     AiException? firstError;
     for (final cfg in _chain()) {
@@ -166,6 +175,7 @@ class Assistant {
           cfg,
           system: system,
           turns: turns,
+          webContext: webContext,
         )) {
           if (seq != _seq) return;
           buf.write(piece);
@@ -211,6 +221,14 @@ class Assistant {
     if (action != null) await perform(action, _replyLanguage(text));
     if (seq != _seq) return;
     _finish(text, shown.isEmpty ? '✓' : shown);
+  }
+
+  /// Savol uchun internet qidiruvi natijalari (model uchun ma’lumot bloki).
+  /// Ochiq sahifa haqidagi savol yoki ijodiy ishda — qidirilmaydi.
+  Future<String?> _webContext(String question, {required bool onPage}) async {
+    if (onPage || !InternetSearch.shouldSearch(question)) return null;
+    final hits = await webSearch.search(InternetSearch.queryFor(question));
+    return hits.isEmpty ? null : InternetSearch.format(hits, DateTime.now());
   }
 
   void _finish(String question, String answer) {

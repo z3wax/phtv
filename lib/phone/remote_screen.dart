@@ -5,6 +5,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../media_picker.dart';
 import '../latin_input.dart';
@@ -12,6 +13,7 @@ import '../uzbek_text.dart';
 import '../tv/input.dart';
 import '../tv/model.dart';
 import '../tv/server.dart';
+import 'offline_stt.dart';
 import 'usb_screen.dart';
 import 'voice_input.dart';
 
@@ -83,8 +85,15 @@ class _RemoteScreenState extends State<RemoteScreen> {
   void initState() {
     super.initState();
     _connect();
-    VoiceInput.loadLanguage().then((l) {
+    VoiceInput.loadLanguage().then((l) async {
       if (mounted) setState(() => _lang = l);
+      // Internetsiz model o‘rnatilgan bo‘lsa — oldindan yuklab qo‘yamiz,
+      // birinchi bosishda kutmaslik uchun.
+      if (VoiceInput.instance.supported &&
+          l == 'uz-UZ' &&
+          await OfflineStt.instance.refresh()) {
+        unawaited(OfflineStt.instance.warmUp());
+      }
     });
   }
 
@@ -217,6 +226,45 @@ class _RemoteScreenState extends State<RemoteScreen> {
     );
   }
 
+  /// O‘zbekcha gapirilganda birinchi marta: internetsiz modelni taklif qilish.
+  Future<void> _offerOfflineModel() async {
+    if (_lang != 'uz-UZ' || !VoiceInput.instance.supported) return;
+    if (OfflineStt.instance.status.value.phase != SttModelPhase.missing) return;
+    if (await OfflineStt.instance.refresh()) return;
+    final prefs = SharedPreferencesAsync();
+    try {
+      if (await prefs.getBool('sttOffered') == true) return;
+      await prefs.setBool('sttOffered', true);
+    } catch (_) {
+      return;
+    }
+    if (!mounted) return;
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C1E),
+        title: const Text(UzbekSttModel.title),
+        content: const Text(
+          'Telefonga o‘zbek tilini yaxshi tushunadigan nutqni tanish modelini '
+          'o‘rnatamizmi? Bir marta ${UzbekSttModel.megabytes} yuklab olinadi '
+          '(Wi-Fi tavsiya etiladi), keyin internetsiz ishlaydi.\n\n'
+          'Keyinroq ham mumkin: mikrofonni bosib turing.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keyinroq'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Yuklab olish'),
+          ),
+        ],
+      ),
+    );
+    if (yes == true) unawaited(OfflineStt.instance.download());
+  }
+
   Future<void> _mic({bool dictation = false}) async {
     if (_startingVoice) return;
     if (_listening) {
@@ -224,6 +272,8 @@ class _RemoteScreenState extends State<RemoteScreen> {
       await VoiceInput.instance.stop();
       return;
     }
+    if (!dictation) await _offerOfflineModel();
+    if (!mounted) return;
     HapticFeedback.mediumImpact();
     _dictating = dictation;
     if (dictation) _dictationBase = _text.value;
@@ -299,6 +349,8 @@ class _RemoteScreenState extends State<RemoteScreen> {
           'language' =>
             'Telefon bu tilni tanimaydi — mikrofonni bosib turib boshqa tilni tanlang',
           'network' => 'Ovozni tanish uchun internet kerak',
+          'model' =>
+            'Nutq modeli ishga tushmadi — mikrofonni bosib turib qayta yuklang',
           'busy' => 'Mikrofon band, birozdan so‘ng urinib ko‘ring',
           _ => 'Eshitilmadi — qayta gapiring',
         };
@@ -335,6 +387,10 @@ class _RemoteScreenState extends State<RemoteScreen> {
                 title: Text(e.value),
                 onTap: () => Navigator.pop(ctx, e.key),
               ),
+            if (VoiceInput.instance.supported) ...[
+              const Divider(height: 1, color: Color(0xFF2C2C2E)),
+              const _OfflineModelTile(),
+            ],
           ],
         ),
       ),
@@ -678,17 +734,22 @@ class _RemoteScreenState extends State<RemoteScreen> {
                   _topBar(),
                   SizedBox(
                     height: 22,
-                    child: Text(
-                      _title.isNotEmpty
-                          ? 'Ekranda: $_title'
-                          : widget.local
-                          ? 'Televizorga qarang — bu yerda boshqaring'
-                          : '${widget.host}:${widget.port}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF8E8E93),
-                        fontSize: 13,
+                    child: ValueListenableBuilder<SttModelStatus>(
+                      valueListenable: OfflineStt.instance.status,
+                      builder: (context, stt, _) => Text(
+                        stt.phase == SttModelPhase.downloading
+                            ? 'Nutq modeli yuklanmoqda… ${stt.percent}%'
+                            : _title.isNotEmpty
+                            ? 'Ekranda: $_title'
+                            : widget.local
+                            ? 'Televizorga qarang — bu yerda boshqaring'
+                            : '${widget.host}:${widget.port}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF8E8E93),
+                          fontSize: 13,
+                        ),
                       ),
                     ),
                   ),
@@ -798,6 +859,121 @@ class _RemoteScreenState extends State<RemoteScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/* ================== Internetsiz o‘zbekcha nutq ================== */
+
+/// Til menyusidagi qator: modelni yuklab olish, jarayon, o‘chirish.
+class _OfflineModelTile extends StatelessWidget {
+  const _OfflineModelTile();
+
+  static String _mb(int bytes) => (bytes / 1000000).toStringAsFixed(0);
+
+  Future<void> _remove(BuildContext context) async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C1E),
+        title: const Text('Modelni o‘chirasizmi?'),
+        content: const Text(
+          'Telefonda ${UzbekSttModel.megabytes} joy bo‘shaydi. O‘zbekcha ovozni '
+          'yana telefon tizimi taniydi (internet kerak bo‘lishi mumkin).',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Yo‘q'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('O‘chirish'),
+          ),
+        ],
+      ),
+    );
+    if (yes == true) await OfflineStt.instance.remove();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final stt = OfflineStt.instance;
+    return ValueListenableBuilder<SttModelStatus>(
+      valueListenable: stt.status,
+      builder: (context, s, _) {
+        final (
+          IconData icon,
+          Color color,
+          String subtitle,
+          Widget action,
+        ) = switch (s.phase) {
+          SttModelPhase.missing => (
+            Icons.download_rounded,
+            const Color(0xFF8E8E93),
+            'O‘zbekchani telefonning o‘zida taniydi. '
+                '${UzbekSttModel.megabytes}, bir marta yuklanadi (Wi-Fi tavsiya).',
+            TextButton(
+              onPressed: stt.download,
+              child: const Text('Yuklab olish'),
+            ),
+          ),
+          SttModelPhase.downloading => (
+            Icons.downloading_rounded,
+            const Color(0xFF5AC8FA),
+            'Yuklanmoqda… ${s.percent}% '
+                '(${_mb(s.received)} / ${_mb(UzbekSttModel.bytes)} MB)',
+            TextButton(
+              onPressed: stt.cancelDownload,
+              child: const Text('To‘xtatish'),
+            ),
+          ),
+          SttModelPhase.ready => (
+            Icons.offline_bolt_rounded,
+            const Color(0xFF30D158),
+            'O‘rnatilgan — o‘zbekcha gapirganda internet kerak emas',
+            IconButton(
+              tooltip: 'O‘chirish',
+              onPressed: () => _remove(context),
+              icon: const Icon(Icons.delete_outline_rounded),
+            ),
+          ),
+          SttModelPhase.failed => (
+            Icons.error_outline_rounded,
+            const Color(0xFFFFD60A),
+            s.error,
+            TextButton(onPressed: stt.download, child: const Text('Qayta')),
+          ),
+        };
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: Icon(icon, color: color),
+                title: const Text(UzbekSttModel.title),
+                subtitle: Text(
+                  '$subtitle\n${UzbekSttModel.credit}',
+                  style: const TextStyle(fontSize: 12.5),
+                ),
+                isThreeLine: true,
+                trailing: action,
+              ),
+              if (s.phase == SttModelPhase.downloading)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: LinearProgressIndicator(
+                    value: s.received == 0 ? null : s.progress,
+                    minHeight: 3,
+                    color: const Color(0xFF5AC8FA),
+                    backgroundColor: const Color(0xFF2C2C2E),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

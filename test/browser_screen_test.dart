@@ -24,6 +24,7 @@ class BrowserTestAi extends AiClient {
     AiConfig config, {
     required String system,
     required List<AiTurn> turns,
+    Future<String?> Function()? webContext,
   }) async* {
     requests.add(turns);
     yield 'Sahifa haqida javob.';

@@ -46,7 +46,9 @@ class AiConfig {
   /// Faqat “Boshqa” xizmat uchun: `https://…/v1/chat/completions`.
   final String endpoint;
 
-  /// Gemini: yangiliklar, narxlar, natijalar uchun Google qidiruvi.
+  /// Yangiliklar, narxlar, natijalar uchun internet qidiruvi: Gemini’da —
+  /// Google qidiruvi, boshqa xizmatlarda (bepul GPT, Groq…) — DuckDuckGo
+  /// natijalari savol bilan birga modelga beriladi.
   final bool webSearch;
 
   /// Javobni televizor ovoz chiqarib aytadi.
@@ -205,15 +207,28 @@ class AiClient {
   }
 
   /// Javob matnini bo‘lak-bo‘lak qaytaradi.
+  ///
+  /// [webContext] — internet qidiruvi natijalari (Google qidiruvi yo‘q
+  /// xizmatlar uchun); faqat kerak bo‘lganda bir marta chaqiriladi.
   Stream<String> chat(
     AiConfig config, {
     required String system,
     required List<AiTurn> turns,
+    Future<String?> Function()? webContext,
   }) async* {
     if (!config.ready) {
       throw AiException(
         'AI kaliti kiritilmagan. Sozlamalar → AI yordamchi bo‘limiga bepul kalit kiriting.',
       );
+    }
+    if (config.provider != AiProvider.gemini &&
+        config.webSearch &&
+        webContext != null) {
+      String? found;
+      try {
+        found = await webContext();
+      } catch (_) {}
+      if (found != null && found.isNotEmpty) system = '$system\n\n$found';
     }
     final models = _models(config);
     if (config.provider == AiProvider.custom && models.isEmpty) {
