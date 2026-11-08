@@ -139,7 +139,10 @@ iPhone ──zaryad simi (USB)──► Mac ──HDMI / USB-C → HDMI──►
   (`~/Movies/Telefon TV`) ga tushadi va televizorda ochiladi. (Android
   telefonni Mac’ga Wi-Fi orqali ulang: macOS Android’ning USB modemini
   tanimaydi.)
-- **Ovoz televizordan:** Tizim sozlamalari → Ovoz → Chiqish → televizor.
+- **Ovoz televizordan — avtomatik:** Telefon TV televizor ekraniga chiqqanda
+  televizorning HDMI / DisplayPort ovozi tizimning asosiy chiqishi bo‘ladi,
+  televizordan chiqqanda yoki ilova yopilganda avvalgisi qaytadi. Kerak
+  bo‘lmasa: `TELEFON_TV_KEEP_AUDIO=1`.
 
 **O‘rnatish:** [Releases](https://github.com/z3wax/phtv/releases/latest) →
 `TelefonTV-…-macos.dmg` → oching → “Telefon TV” ni **Applications** ga

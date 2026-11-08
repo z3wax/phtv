@@ -1,4 +1,5 @@
 import Cocoa
+import CoreAudio
 import FlutterMacOS
 import IOKit.pwr_mgt
 import WebKit
@@ -13,6 +14,9 @@ import WebKit
 ///   pult serveri ishlab turadi.
 /// * Ilova ochiq ekan ekran o‘chmaydi, qulflanmaydi, Mac uxlamaydi.
 /// * Televizorni qo‘lda tanlash: `TELEFON_TV_SCREEN=<raqam>`.
+/// * Televizorga o‘tganda ovoz ham televizordan chiqadi (HDMI / DisplayPort),
+///   televizordan chiqqanda — avvalgi chiqish. O‘chirish:
+///   `TELEFON_TV_KEEP_AUDIO=1`.
 class MainFlutterWindow: NSWindow {
   private let background = CommandLine.arguments.contains("--background")
   private var onTv = false
@@ -39,6 +43,9 @@ class MainFlutterWindow: NSWindow {
     NotificationCenter.default.addObserver(
       self, selector: #selector(screensChanged),
       name: NSApplication.didChangeScreenParametersNotification, object: nil)
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(willTerminate),
+      name: NSApplication.willTerminateNotification, object: nil)
 
     super.awakeFromNib()
     setAwake(true)
@@ -105,6 +112,21 @@ class MainFlutterWindow: NSWindow {
     place()
   }
 
+  @objc private func willTerminate() {
+    TvAudio.restore()
+  }
+
+  /// Ovozni televizorga o‘tkazadi. Televizor ovoz qurilmasi ekrandan
+  /// biroz keyin paydo bo‘lishi mumkin — bir necha marta urinadi.
+  private func routeAudio(to tv: NSScreen, attempt: Int = 0) {
+    guard onTv else { return }
+    if TvAudio.route(to: tv) || attempt >= 3 { return }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+      guard let self = self, self.onTv, let screen = self.tvScreen() else { return }
+      self.routeAudio(to: screen, attempt: attempt + 1)
+    }
+  }
+
   private static func displayID(_ screen: NSScreen) -> CGDirectDisplayID? {
     let key = NSDeviceDescriptionKey("NSScreenNumber")
     guard let number = screen.deviceDescription[key] as? NSNumber else { return nil }
@@ -153,12 +175,14 @@ class MainFlutterWindow: NSWindow {
     if firstTime {
       NSApp.activate(ignoringOtherApps: true)
       makeKey()
+      routeAudio(to: tv)
     }
   }
 
   private func showWithoutTv() {
     let wasOnTv = onTv
     onTv = false
+    if wasOnTv { TvAudio.restore() }
     if background {
       orderOut(nil)
       NSApp.setActivationPolicy(.accessory)
@@ -203,5 +227,124 @@ class MainFlutterWindow: NSWindow {
   private func declareActivity() {
     IOPMAssertionDeclareUserActivity(
       "Telefon TV" as CFString, kIOPMUserActiveLocal, &idleAssertion)
+  }
+}
+
+/// Televizor ovozi: ilova televizor ekraniga chiqqanda televizorning HDMI /
+/// DisplayPort ovoz qurilmasini tizimning asosiy chiqishi qiladi (macOS buni
+/// o‘zi qilmaydi — ovoz Mac dinamigida qoladi), televizordan chiqqanda yoki
+/// ilova yopilganda avvalgisini qaytaradi.
+private enum TvAudio {
+  private static var previous: AudioDeviceID?
+  private static var current: AudioDeviceID?
+  private static let system = AudioObjectID(kAudioObjectSystemObject)
+
+  private static func address(
+    _ selector: AudioObjectPropertySelector,
+    _ scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal
+  ) -> AudioObjectPropertyAddress {
+    // mElement 0 — “main” (macOS 10.15 da ham).
+    return AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: 0)
+  }
+
+  private static func devices() -> [AudioDeviceID] {
+    var addr = address(kAudioHardwarePropertyDevices)
+    var size: UInt32 = 0
+    guard AudioObjectGetPropertyDataSize(system, &addr, 0, nil, &size) == noErr, size > 0
+    else { return [] }
+    var ids = [AudioDeviceID](
+      repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
+    guard AudioObjectGetPropertyData(system, &addr, 0, nil, &size, &ids) == noErr
+    else { return [] }
+    return ids
+  }
+
+  private static func transport(_ id: AudioDeviceID) -> UInt32 {
+    var addr = address(kAudioDevicePropertyTransportType)
+    var value: UInt32 = 0
+    var size = UInt32(MemoryLayout<UInt32>.size)
+    return AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &value) == noErr ? value : 0
+  }
+
+  private static func hasOutput(_ id: AudioDeviceID) -> Bool {
+    var addr = address(kAudioDevicePropertyStreams, kAudioObjectPropertyScopeOutput)
+    var size: UInt32 = 0
+    return AudioObjectGetPropertyDataSize(id, &addr, 0, nil, &size) == noErr && size > 0
+  }
+
+  private static func name(_ id: AudioDeviceID) -> String {
+    var addr = address(kAudioObjectPropertyName)
+    var value: Unmanaged<CFString>?
+    var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+    guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &value) == noErr,
+      let text = value?.takeRetainedValue()
+    else { return "" }
+    return text as String
+  }
+
+  private static func defaultOutput() -> AudioDeviceID? {
+    var addr = address(kAudioHardwarePropertyDefaultOutputDevice)
+    var id = AudioDeviceID(0)
+    var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+    guard AudioObjectGetPropertyData(system, &addr, 0, nil, &size, &id) == noErr, id != 0
+    else { return nil }
+    return id
+  }
+
+  private static func setDefaultOutput(_ id: AudioDeviceID) -> Bool {
+    var addr = address(kAudioHardwarePropertyDefaultOutputDevice)
+    var value = id
+    let size = UInt32(MemoryLayout<AudioDeviceID>.size)
+    return AudioObjectSetPropertyData(system, &addr, 0, nil, size, &value) == noErr
+  }
+
+  /// Televizor ekranining ovoz qurilmasi: nomi ekran nomiga mos HDMI /
+  /// DisplayPort chiqishi, bo‘lmasa — birinchi HDMI / DisplayPort chiqishi.
+  private static func device(for screen: NSScreen) -> AudioDeviceID? {
+    let outputs = devices().filter { id in
+      let kind = transport(id)
+      return (kind == kAudioDeviceTransportTypeHDMI
+        || kind == kAudioDeviceTransportTypeDisplayPort) && hasOutput(id)
+    }
+    let screenName = screen.localizedName.lowercased()
+    if !screenName.isEmpty,
+      let match = outputs.first(where: { id in
+        let deviceName = name(id).lowercased()
+        return !deviceName.isEmpty
+          && (deviceName.contains(screenName) || screenName.contains(deviceName))
+      })
+    {
+      return match
+    }
+    return outputs.first
+  }
+
+  /// Ovozni televizorga o‘tkazadi; televizor ovoz qurilmasi topilmasa — false.
+  @discardableResult
+  static func route(to screen: NSScreen) -> Bool {
+    if ProcessInfo.processInfo.environment["TELEFON_TV_KEEP_AUDIO"] != nil { return true }
+    guard let tv = device(for: screen) else { return false }
+    let now = defaultOutput()
+    if now == tv {
+      current = tv
+      return true
+    }
+    guard setDefaultOutput(tv) else { return false }
+    if previous == nil { previous = now }
+    current = tv
+    return true
+  }
+
+  /// Avvalgi chiqishni qaytaradi — agar foydalanuvchi o‘zi boshqasini
+  /// tanlamagan bo‘lsa va avvalgi qurilma hali ulangan bo‘lsa.
+  static func restore() {
+    defer {
+      previous = nil
+      current = nil
+    }
+    guard let before = previous, let tv = current, defaultOutput() == tv,
+      devices().contains(before)
+    else { return }
+    _ = setDefaultOutput(before)
   }
 }
