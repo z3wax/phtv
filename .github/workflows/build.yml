@@ -1,0 +1,271 @@
+name: Telefon TV
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**/*.md', 'docs/**']
+  workflow_dispatch:
+    inputs:
+      clean_releases:
+        description: 'Eski barcha release va teglarni o‘chirib, faqat yangisini qoldirish'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Har bir commit alohida: eski yig‘ilishni qayta ishga tushirish yangisini
+# bekor qilmaydi.
+concurrency:
+  group: telefon-tv-${{ github.sha }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.35.7'
+  FLUTTER_SUPPRESS_ANALYTICS: true
+  DART_SUPPRESS_ANALYTICS: true
+
+jobs:
+  android:
+    name: Tekshiruv, testlar va Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build apk --release
+      - name: Name the APK
+        run: |
+          version=$(grep '^version:' pubspec.yaml | awk '{print $2}' | sed 's/+.*//')
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/TelefonTV-$version.apk"
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TelefonTV-Android
+          path: dist/*.apk
+          if-no-files-found: error
+
+  ios:
+    name: iPhone (imzosiz IPA)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build ios --release --no-codesign
+      # Sideloadly / AltStore o‘zi imzolaydigan IPA.
+      - name: Package the IPA
+        run: |
+          version=$(grep '^version:' pubspec.yaml | awk '{print $2}' | sed 's/+.*//')
+          mkdir -p dist/Payload
+          cp -R build/ios/iphoneos/Runner.app dist/Payload/
+          (cd dist && zip -qr "TelefonTV-$version-imzosiz.ipa" Payload && rm -rf Payload)
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TelefonTV-iPhone
+          path: dist/*.ipa
+          if-no-files-found: error
+
+  linux:
+    name: Ubuntu ${{ matrix.ubuntu }} (kompyuter → HDMI → televizor)
+    runs-on: ubuntu-${{ matrix.ubuntu }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # Har biri o‘z libmpv versiyasiga bog‘lanadi (22.04 — libmpv1, 24.04 — libmpv2).
+        ubuntu: ['22.04', '24.04']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Linux build dependencies
+        # Ubuntu ko‘zgusi osilib qolsa — 40 daqiqa kutmasdan to‘xtasin.
+        timeout-minutes: 25
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
+          NEEDRESTART_SUSPEND: '1'
+        run: |
+          # Runner’dagi uchinchi tomon manbalari (Microsoft va h.k.) ba’zan
+          # “apt-get update” ni osiltiradi — bizga faqat Ubuntu manbalari kerak.
+          sudo find /etc/apt/sources.list.d -type f ! -name 'ubuntu.sources' -print -delete
+          apt_opts="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o DPkg::Lock::Timeout=180"
+          pkgs="clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libmpv-dev libwebkit2gtk-4.1-dev gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad"
+          install() {
+            timeout 300 sudo -E apt-get $apt_opts update &&
+              timeout 600 sudo -E apt-get $apt_opts install -y --no-install-recommends $pkgs
+          }
+          # Azure ko‘zgusi juda sekin bo‘lsa — asosiy Ubuntu serveri bilan qayta
+          # (yuklab olingan paketlar keshda qoladi).
+          if ! install; then
+            echo "::warning::Ubuntu ko‘zgusi sekin — archive.ubuntu.com bilan qayta urinish"
+            sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' \
+              /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list 2>/dev/null || true
+            install
+          fi
+      - run: flutter pub get
+      - run: flutter build linux --release
+      - name: Package
+        run: |
+          version=$(grep '^version:' pubspec.yaml | awk '{print $2}' | sed 's/+.*//')
+          name="TelefonTV-$version-ubuntu-${{ matrix.ubuntu }}"
+          mkdir -p "dist/$name"
+          cp -r build/linux/x64/release/bundle "dist/$name/bundle"
+          cp linux/packaging/install.sh linux/packaging/telefon-tv.png "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TelefonTV-Ubuntu-${{ matrix.ubuntu }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  macos:
+    name: macOS (Mac → HDMI → televizor)
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # Universal ilova: Apple Silicon (M1…) va Intel Mac’lar, macOS 10.15+.
+      - run: flutter build macos --release
+      - name: Check macOS 10.15 Catalina support and sign
+        run: |
+          app="build/macos/Build/Products/Release/Telefon TV.app"
+          lipo -archs "$app/Contents/MacOS/Telefon TV"
+          echo "LSMinimumSystemVersion: $(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/Contents/Info.plist")"
+          # Intel Mac’dagi Catalina uchun: hech bir qism 10.15 dan yuqori talab qilmasin.
+          bad=0
+          while IFS= read -r -d '' f; do
+            file "$f" | grep -q 'Mach-O' || continue
+            v=$(otool -arch x86_64 -l "$f" 2>/dev/null | awk '/LC_BUILD_VERSION/{b=1} b&&$1=="minos"{print $2; exit} /LC_VERSION_MIN_MACOSX/{m=1} m&&$1=="version"{print $2; exit}')
+            [ -z "$v" ] && continue
+            top=$(printf '%s\n10.15\n' "$v" | sort -V | tail -1)
+            if [ "$top" != "10.15" ]; then echo "::error::$(basename "$f") needs macOS $v"; bad=1; else echo "ok $(basename "$f") $v"; fi
+          done < <(find "$app/Contents" -type f -perm -u+x -print0)
+          [ "$bad" = 0 ]
+          # Butun ilovani qayta imzolash (ad-hoc): Finder / Launchpad’dan ochilishi uchun.
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+      - name: Package the DMG
+        run: |
+          version=$(grep '^version:' pubspec.yaml | awk '{print $2}' | sed 's/+.*//')
+          app="build/macos/Build/Products/Release/Telefon TV.app"
+          mkdir -p dmg dist
+          ditto "$app" "dmg/Telefon TV.app"
+          ln -s /Applications dmg/Applications
+          cat > "dmg/O‘RNATISH — birinchi ochish.txt" <<'TXT'
+          Telefon TV — Mac (macOS 10.15 Catalina va yangilari)
+
+          1. “Telefon TV” belgisini “Applications” papkasiga torting.
+          2. BIRINCHI MARTA: Launchpad emas, Finder → Programmalar (Applications)
+             ichida “Telefon TV” ustida Control tugmasini bosib turib bosing
+             (yoki sichqonchaning o‘ng tugmasi) → “Open / Открыть” → yana “Open”.
+             Ilova Apple App Store’dan emas, shuning uchun macOS bir marta so‘raydi.
+          3. Shundan keyin Launchpad va Dock’dan oddiy ochiladi.
+
+          Agar “shikastlangan” yoki “ochib bo‘lmaydi” desa — Terminal’da bir marta:
+             xattr -cr "/Applications/Telefon TV.app"
+          keyin Launchpad’dan oching.
+          TXT
+          sed -i '' 's/^          //' "dmg/O‘RNATISH — birinchi ochish.txt"
+          hdiutil create -volname "Telefon TV" -srcfolder dmg -ov -format UDZO "dist/TelefonTV-$version-macos.dmg"
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TelefonTV-macOS
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  # Qo‘lda ishga tushirilganda (clean_releases): eski barcha release va teglar
+  # o‘chiriladi, keyin Releases sahifasida faqat yangi yig‘ilish qoladi.
+  cleanup:
+    name: Eski release’larni tozalash
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.clean_releases }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Delete old releases and tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          for id in $(gh api "repos/$REPO/releases" --paginate --jq '.[].id'); do
+            echo "release $id"
+            gh api -X DELETE "repos/$REPO/releases/$id"
+          done
+          for ref in $(gh api "repos/$REPO/git/matching-refs/tags" --paginate --jq '.[].ref'); do
+            echo "$ref"
+            gh api -X DELETE "repos/$REPO/git/$ref"
+          done
+
+  # Har push’dan keyin APK, IPA, Mac va Ubuntu fayllari Releases sahifasiga
+  # qo‘yiladi — telefonda login qilmasdan yuklab olish mumkin.
+  release:
+    name: Releases’ga joylash
+    needs: [android, ios, linux, macos, cleanup]
+    # Tozalash o‘tkazib yuborilsa ham (oddiy push) release qo‘yiladi.
+    if: ${{ !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(grep '^version:' pubspec.yaml | awk '{print $2}' | sed 's/+.*//')
+          tag="v$version-build.${{ github.run_number }}"
+          ls -la dist
+          cat > notes.md <<'EOF'
+          **Android:** `.apk` faylni telefonda yuklab oling va o‘rnating (so‘rasa, “noma’lum manbalar” ga ruxsat bering).
+
+          **iPhone:** `-imzosiz.ipa` — o‘z Apple ID bilan imzolab o‘rnatiladi: Ubuntu’da iloader (iloader.app), yoki Sideloadly / AltStore. Bepul Apple ID’da 7 kunda qayta o‘rnatiladi.
+
+          **Mac (macOS 10.15 Catalina va yangilari):** `-macos.dmg` ni oching, “Telefon TV” ni Applications’ga torting. Birinchi marta Finder’da ilova ustida Control + bosish → Open → Open (bir marta). Keyin Launchpad’dan oddiy ochiladi. “Shikastlangan” desa — Terminal’da bir marta: `xattr -cr "/Applications/Telefon TV.app"`.
+
+          **Ubuntu kompyuter (HDMI → televizor):** `sudo apt install libmpv2 libwebkit2gtk-4.1-0 gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad` (22.04 da `libmpv2` o‘rniga `libmpv1`). Ovozli javob uchun `sudo apt install espeak-ng`. Arxivni oching va `./install.sh --autostart`.
+
+          **Yangiliklar:** Saytlarda sichqoncha kursori yo‘q — pultning ↑↓←→ tugmalari bilan televizordagidek tanlash, OK — bosish, matn maydonida OK — pultda yozish. YouTube endi kompyuter sayti emas, televizor ko‘rinishida (youtube.com/tv) ochiladi. iDub — asl manzil (idub.tv). Tizim yoqilganda, televizor ulanganda va uyqudan uyg‘onganda — “z3wax tv” yuklanish ekrani.
+
+          **AI yordamchi:** pultdagi 🎤 — gapiring. Kalitsiz darrov ishlaydi; tezroq va aqlliroq bo‘lishi uchun Sozlamalar → AI yordamchi → Google Gemini (aistudio.google.com/apikey) yoki Groq (console.groq.com/keys) bepul kaliti.
+
+          Batafsil: README.
+          EOF
+          sed -i 's/^          //' notes.md
+          gh release create "$tag" dist/* --target "$GITHUB_SHA" \
+            --title "z3wax TV $version (build ${{ github.run_number }})" \
+            --notes-file notes.md --latest

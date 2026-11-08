@@ -1,0 +1,12 @@
+edge_token.dart is a Dart adaptation of the protocol compatibility algorithm in
+edge-tts 7.3.1 (https://github.com/rany2/edge-tts), Copyright rany <rany@riseup.net>,
+licensed under LGPL-3.0-or-later. See COPYING.LESSER and COPYING.
+
+The complete application and this adaptation's source and build instructions are
+available at https://github.com/z3wax/phtv. You may modify, rebuild and relink this
+application with a modified version of this LGPL component, and reverse engineer
+it for debugging those modifications. No application terms restrict these rights.
+
+Microsoft's online Read Aloud service is independent of this project. Availability
+and limits can change. No user API key is embedded; the protocol client identifier
+is a public constant, not an Azure subscription credential.
