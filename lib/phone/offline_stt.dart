@@ -19,7 +19,10 @@ class UzbekSttModel {
   static const title = 'Internetsiz o‘zbekcha nutq';
   static const credit = 'NVIDIA FastConformer (uz), CC BY 4.0';
   static const repo = 'algorithco/stt_uz_fastconformer_hybrid_large_pc';
-  static const revision = 'main';
+
+  /// Hugging Face commit (o‘zgarmas): model.int8.onnx sha256
+  /// c93339f50c1296f51c9dffaa7ce4ec4468ff331a617c58b6ac5b6fa305a8cb8c.
+  static const revision = '1786554e0cdfacb8bf9076b4d9739cb81d2fbb2d';
   static const files = <(String, int)>[
     ('model.int8.onnx', 173888181),
     ('tokens.txt', 9759),

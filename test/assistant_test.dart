@@ -167,6 +167,16 @@ void main() {
       expect(action<RemoteCmd>('ovozni ancha ko‘tar').times, 4);
     });
 
+    test('telefondagi internetsiz model yozgan matn (ʻ, nuqta)', () {
+      // NVIDIA FastConformer natijasi: katta harf, U+02BB va tinish belgisi.
+      expect(action<RemoteCmd>('Ovozni biroz pasaytir.').cmd, Cmd.volDown);
+      expect(action<RemoteCmd>('Ovozni koʻtar.').cmd, Cmd.volUp);
+      expect(
+        action<YoutubeSearch>('Youtubeda oʻzbekcha qoʻshiq qoʻy.').query,
+        contains('qo'),
+      );
+    });
+
     test('kanal nomi bilan', () {
       final c = action<PlayChannel>(
         'Sevimli TV ni qo‘y',
