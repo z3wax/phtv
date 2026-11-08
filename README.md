@@ -32,17 +32,25 @@ TV, video, brauzer va AI bir xil saqlangan ovoz foizini ishlatadi.
 
 ### Internetsiz o‘zbekcha nutq (telefonda)
 
-Telefon pultida o‘zbekcha gapirilganini telefonning o‘zi, internetsiz taniydi:
-**NVIDIA FastConformer** (o‘zbekcha, 115M parametr, int8 — **174 MB**). Bu
-o‘zbekcha uchun ochiq modellar orasida eng aniqlaridan biri (FLEURS ~11%,
-Common Voice ~7% so‘z xatosi; Whisper large-v3 da 100% dan ortiq) va shunday
-sifatdagilar ichida eng kichigi. Model ilovaga qo‘shilmagan — bir marta
-yuklanadi: pultdagi 🎤 ni **bosib turing** → “Internetsiz o‘zbekcha nutq” →
-**Yuklab olish** (Wi-Fi tavsiya etiladi; uzilsa, qolgan joyidan davom etadi).
-Birinchi marta o‘zbekcha gapirganda ham taklif qilinadi. Gap tugaganini o‘zi
-sezadi (~1 soniya jimlik), aytilayotgan so‘zlar ekranda ko‘rinib boradi.
-O‘chirish ham shu menyuda. Rus va ingliz tili — telefon tizimi orqali.
-Litsenziya: CC BY 4.0 — [third_party/stt_uz_fastconformer/NOTICE](third_party/stt_uz_fastconformer/NOTICE).
+Telefon pultida o‘zbekcha gapirilganini telefonning o‘zi, internetsiz taniydi.
+Ikki model bor — bittasini yoki ikkalasini yuklab, tanlash mumkin:
+
+| Model | Hajm | Xato (FLEURS) | Kimga |
+|---|---|---|---|
+| **Aniq** — NVIDIA FastConformer (115M) | 174 MB | ~11% | o‘rtacha va kuchli telefonlar |
+| **Yengil** — Vosk Zipformer2 (Alpha Cephei) | 94 MB | ~18% | joyi yoki xotirasi kam telefonlar |
+
+Taqqoslash uchun: Whisper large-v3 o‘zbekchada 100% dan ortiq xato qiladi.
+Modellar ilovaga qo‘shilmagan — bir marta yuklanadi: pultdagi 🎤 ni
+**bosib turing** → “Internetsiz o‘zbekcha nutq” → **Yuklab olish** (Wi-Fi
+tavsiya etiladi; uzilsa, qolgan joyidan davom etadi). O‘rnatilgan modelni bosib
+tanlanadi, o‘chirish ham shu yerda. Birinchi marta o‘zbekcha gapirganda ham
+taklif qilinadi. Gap tugaganini o‘zi sezadi (~1 soniya jimlik), aytilayotgan
+so‘zlar ekranda ko‘rinib boradi. Rus va ingliz tili — telefon tizimi orqali.
+Ikkala model GitHub Actions’da (build → `stt_check`) haqiqiy o‘zbekcha jumlalarda
+tekshiriladi. Litsenziyalar:
+[third_party/stt_uz_fastconformer/NOTICE](third_party/stt_uz_fastconformer/NOTICE),
+[third_party/stt_uz_vosk/NOTICE](third_party/stt_uz_vosk/NOTICE).
 
 ### Internet qidiruvi
 

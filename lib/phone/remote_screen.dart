@@ -89,9 +89,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
       if (mounted) setState(() => _lang = l);
       // Internetsiz model o‘rnatilgan bo‘lsa — oldindan yuklab qo‘yamiz,
       // birinchi bosishda kutmaslik uchun.
-      if (VoiceInput.instance.supported &&
-          l == 'uz-UZ' &&
-          await OfflineStt.instance.refresh()) {
+      if (VoiceInput.instance.supported && l == 'uz-UZ') {
         unawaited(OfflineStt.instance.warmUp());
       }
     });
@@ -229,8 +227,8 @@ class _RemoteScreenState extends State<RemoteScreen> {
   /// O‘zbekcha gapirilganda birinchi marta: internetsiz modelni taklif qilish.
   Future<void> _offerOfflineModel() async {
     if (_lang != 'uz-UZ' || !VoiceInput.instance.supported) return;
-    if (OfflineStt.instance.status.value.phase != SttModelPhase.missing) return;
-    if (await OfflineStt.instance.refresh()) return;
+    final stt = OfflineStt.instance;
+    if (stt.downloading != null || await stt.active() != null) return;
     final prefs = SharedPreferencesAsync();
     try {
       if (await prefs.getBool('sttOffered') == true) return;
@@ -239,30 +237,37 @@ class _RemoteScreenState extends State<RemoteScreen> {
       return;
     }
     if (!mounted) return;
-    final yes = await showDialog<bool>(
+    const accurate = UzbekSttModel.accurate, light = UzbekSttModel.light;
+    final pick = await showDialog<SttModelSpec>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1C1C1E),
         title: const Text(UzbekSttModel.title),
-        content: const Text(
-          'Telefonga o‘zbek tilini yaxshi tushunadigan nutqni tanish modelini '
-          'o‘rnatamizmi? Bir marta ${UzbekSttModel.megabytes} yuklab olinadi '
-          '(Wi-Fi tavsiya etiladi), keyin internetsiz ishlaydi.\n\n'
+        content: Text(
+          'Telefonga o‘zbek tilini tushunadigan nutqni tanish modelini '
+          'o‘rnatamizmi? Bir marta yuklab olinadi (Wi-Fi tavsiya etiladi), '
+          'keyin internetsiz ishlaydi.\n\n'
+          '• ${accurate.name} (${accurate.megabytes}) — ${accurate.about}\n'
+          '• ${light.name} (${light.megabytes}) — ${light.about}\n\n'
           'Keyinroq ham mumkin: mikrofonni bosib turing.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
+            onPressed: () => Navigator.pop(ctx),
             child: const Text('Keyinroq'),
           ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, light),
+            child: Text('${light.name} (${light.megabytes})'),
+          ),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Yuklab olish'),
+            onPressed: () => Navigator.pop(ctx, accurate),
+            child: Text('${accurate.name} (${accurate.megabytes})'),
           ),
         ],
       ),
     );
-    if (yes == true) unawaited(OfflineStt.instance.download());
+    if (pick != null) unawaited(OfflineStt.instance.download(pick));
   }
 
   Future<void> _mic({bool dictation = false}) async {
@@ -365,33 +370,36 @@ class _RemoteScreenState extends State<RemoteScreen> {
     HapticFeedback.mediumImpact();
     final v = await showModalBottomSheet<String>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: const Color(0xFF111113),
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text(
-                'Qaysi tilda gapirasiz?',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-              ),
-            ),
-            for (final e in VoiceInput.languages.entries)
-              ListTile(
-                leading: Icon(
-                  e.key == _lang
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  'Qaysi tilda gapirasiz?',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
                 ),
-                title: Text(e.value),
-                onTap: () => Navigator.pop(ctx, e.key),
               ),
-            if (VoiceInput.instance.supported) ...[
-              const Divider(height: 1, color: Color(0xFF2C2C2E)),
-              const _OfflineModelTile(),
+              for (final e in VoiceInput.languages.entries)
+                ListTile(
+                  leading: Icon(
+                    e.key == _lang
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                  ),
+                  title: Text(e.value),
+                  onTap: () => Navigator.pop(ctx, e.key),
+                ),
+              if (VoiceInput.instance.supported) ...[
+                const Divider(height: 1, color: Color(0xFF2C2C2E)),
+                const _OfflineModelTile(),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -734,23 +742,27 @@ class _RemoteScreenState extends State<RemoteScreen> {
                   _topBar(),
                   SizedBox(
                     height: 22,
-                    child: ValueListenableBuilder<SttModelStatus>(
-                      valueListenable: OfflineStt.instance.status,
-                      builder: (context, stt, _) => Text(
-                        stt.phase == SttModelPhase.downloading
-                            ? 'Nutq modeli yuklanmoqda… ${stt.percent}%'
-                            : _title.isNotEmpty
-                            ? 'Ekranda: $_title'
-                            : widget.local
-                            ? 'Televizorga qarang — bu yerda boshqaring'
-                            : '${widget.host}:${widget.port}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xFF8E8E93),
-                          fontSize: 13,
-                        ),
-                      ),
+                    child: ListenableBuilder(
+                      listenable: OfflineStt.instance.changes,
+                      builder: (context, _) {
+                        final loading = OfflineStt.instance.downloading;
+                        return Text(
+                          loading != null
+                              ? 'Nutq modeli (${loading.$1.name}) yuklanmoqda… '
+                                    '${loading.$2.percent}%'
+                              : _title.isNotEmpty
+                              ? 'Ekranda: $_title'
+                              : widget.local
+                              ? 'Televizorga qarang — bu yerda boshqaring'
+                              : '${widget.host}:${widget.port}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF8E8E93),
+                            fontSize: 13,
+                          ),
+                        );
+                      },
                     ),
                   ),
                   Expanded(
@@ -865,21 +877,34 @@ class _RemoteScreenState extends State<RemoteScreen> {
 
 /* ================== Internetsiz o‘zbekcha nutq ================== */
 
-/// Til menyusidagi qator: modelni yuklab olish, jarayon, o‘chirish.
-class _OfflineModelTile extends StatelessWidget {
+/// Til menyusidagi bo‘lim: ikki model (aniq / yengil) — yuklab olish,
+/// jarayon, tanlash, o‘chirish.
+class _OfflineModelTile extends StatefulWidget {
   const _OfflineModelTile();
+
+  @override
+  State<_OfflineModelTile> createState() => _OfflineModelTileState();
+}
+
+class _OfflineModelTileState extends State<_OfflineModelTile> {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(OfflineStt.instance.refreshAll());
+  }
 
   static String _mb(int bytes) => (bytes / 1000000).toStringAsFixed(0);
 
-  Future<void> _remove(BuildContext context) async {
+  Future<void> _remove(SttModelSpec m) async {
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1C1C1E),
-        title: const Text('Modelni o‘chirasizmi?'),
-        content: const Text(
-          'Telefonda ${UzbekSttModel.megabytes} joy bo‘shaydi. O‘zbekcha ovozni '
-          'yana telefon tizimi taniydi (internet kerak bo‘lishi mumkin).',
+        title: Text('“${m.name}” modelini o‘chirasizmi?'),
+        content: Text(
+          'Telefonda ${m.megabytes} joy bo‘shaydi. Boshqa model o‘rnatilmagan '
+          'bo‘lsa, o‘zbekcha ovozni yana telefon tizimi taniydi (internet '
+          'kerak bo‘lishi mumkin).',
         ),
         actions: [
           TextButton(
@@ -893,83 +918,110 @@ class _OfflineModelTile extends StatelessWidget {
         ],
       ),
     );
-    if (yes == true) await OfflineStt.instance.remove();
+    if (yes == true) await OfflineStt.instance.remove(m);
+  }
+
+  Widget _model(SttModelSpec m, SttModelStatus s, bool chosen) {
+    final stt = OfflineStt.instance;
+    final ready = s.phase == SttModelPhase.ready;
+    final (Widget leading, String state, Widget action) = switch (s.phase) {
+      SttModelPhase.missing => (
+        const Icon(Icons.download_rounded, color: Color(0xFF8E8E93)),
+        'Bir marta yuklanadi (Wi-Fi tavsiya).',
+        TextButton(
+          onPressed: () => stt.download(m),
+          child: const Text('Yuklab olish'),
+        ),
+      ),
+      SttModelPhase.downloading => (
+        const Icon(Icons.downloading_rounded, color: Color(0xFF5AC8FA)),
+        'Yuklanmoqda… ${s.percent}% '
+            '(${_mb(s.received)} / ${_mb(m.bytes)} MB)',
+        TextButton(
+          onPressed: () => stt.cancelDownload(m),
+          child: const Text('To‘xtatish'),
+        ),
+      ),
+      SttModelPhase.ready => (
+        Icon(
+          chosen ? Icons.radio_button_checked : Icons.radio_button_off,
+          color: chosen ? const Color(0xFF30D158) : const Color(0xFF8E8E93),
+        ),
+        chosen
+            ? 'Ishlatilmoqda — internet kerak emas'
+            : 'O‘rnatilgan — tanlash uchun bosing',
+        IconButton(
+          tooltip: 'O‘chirish',
+          onPressed: () => _remove(m),
+          icon: const Icon(Icons.delete_outline_rounded),
+        ),
+      ),
+      SttModelPhase.failed => (
+        const Icon(Icons.error_outline_rounded, color: Color(0xFFFFD60A)),
+        s.error,
+        TextButton(
+          onPressed: () => stt.download(m),
+          child: const Text('Qayta'),
+        ),
+      ),
+    };
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ListTile(
+          leading: leading,
+          title: Text('${m.name} — ${m.megabytes}'),
+          subtitle: Text(
+            '${m.about}\n$state\n${m.credit}',
+            style: const TextStyle(fontSize: 12.5),
+          ),
+          isThreeLine: true,
+          trailing: action,
+          onTap: ready && !chosen ? () => stt.select(m) : null,
+        ),
+        if (s.phase == SttModelPhase.downloading)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: LinearProgressIndicator(
+              value: s.received == 0 ? null : s.progress,
+              minHeight: 3,
+              color: const Color(0xFF5AC8FA),
+              backgroundColor: const Color(0xFF2C2C2E),
+            ),
+          ),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final stt = OfflineStt.instance;
-    return ValueListenableBuilder<SttModelStatus>(
-      valueListenable: stt.status,
-      builder: (context, s, _) {
-        final (
-          IconData icon,
-          Color color,
-          String subtitle,
-          Widget action,
-        ) = switch (s.phase) {
-          SttModelPhase.missing => (
-            Icons.download_rounded,
-            const Color(0xFF8E8E93),
-            'O‘zbekchani telefonning o‘zida taniydi. '
-                '${UzbekSttModel.megabytes}, bir marta yuklanadi (Wi-Fi tavsiya).',
-            TextButton(
-              onPressed: stt.download,
-              child: const Text('Yuklab olish'),
-            ),
-          ),
-          SttModelPhase.downloading => (
-            Icons.downloading_rounded,
-            const Color(0xFF5AC8FA),
-            'Yuklanmoqda… ${s.percent}% '
-                '(${_mb(s.received)} / ${_mb(UzbekSttModel.bytes)} MB)',
-            TextButton(
-              onPressed: stt.cancelDownload,
-              child: const Text('To‘xtatish'),
-            ),
-          ),
-          SttModelPhase.ready => (
-            Icons.offline_bolt_rounded,
-            const Color(0xFF30D158),
-            'O‘rnatilgan — o‘zbekcha gapirganda internet kerak emas',
-            IconButton(
-              tooltip: 'O‘chirish',
-              onPressed: () => _remove(context),
-              icon: const Icon(Icons.delete_outline_rounded),
-            ),
-          ),
-          SttModelPhase.failed => (
-            Icons.error_outline_rounded,
-            const Color(0xFFFFD60A),
-            s.error,
-            TextButton(onPressed: stt.download, child: const Text('Qayta')),
-          ),
-        };
+    return ListenableBuilder(
+      listenable: stt.changes,
+      builder: (context, _) {
+        // Tanlangani o‘rnatilmagan bo‘lsa — o‘rnatilgan boshqasi ishlaydi.
+        final installed = [
+          for (final m in UzbekSttModel.all)
+            if (stt.statusOf(m).value.phase == SttModelPhase.ready) m,
+        ];
+        final using = installed.contains(stt.selected.value)
+            ? stt.selected.value
+            : installed.firstOrNull;
         return Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ListTile(
-                leading: Icon(icon, color: color),
-                title: const Text(UzbekSttModel.title),
-                subtitle: Text(
-                  '$subtitle\n${UzbekSttModel.credit}',
-                  style: const TextStyle(fontSize: 12.5),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
+                child: Text(
+                  UzbekSttModel.title,
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                 ),
-                isThreeLine: true,
-                trailing: action,
               ),
-              if (s.phase == SttModelPhase.downloading)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: LinearProgressIndicator(
-                    value: s.received == 0 ? null : s.progress,
-                    minHeight: 3,
-                    color: const Color(0xFF5AC8FA),
-                    backgroundColor: const Color(0xFF2C2C2E),
-                  ),
-                ),
+              for (final m in UzbekSttModel.all)
+                _model(m, stt.statusOf(m).value, m == using),
             ],
           ),
         );

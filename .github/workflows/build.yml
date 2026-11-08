@@ -224,27 +224,6 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - name: Modelni ilovadagi manzildan yuklash
-        run: |
-          repo=$(grep -oP "static const repo = '\K[^']+" lib/phone/offline_stt.dart)
-          rev=$(grep -oP "static const revision = '\K[^']+" lib/phone/offline_stt.dart)
-          echo "repo=$repo revision=$rev"
-          curl -fsSL "https://huggingface.co/api/models/$repo/revision/$rev?blobs=true" \
-            | jq '{sha, lastModified, files: [.siblings[] | {rfilename, size, sha256: .lfs.sha256}]}' || true
-          mkdir -p model
-          for f in model.int8.onnx tokens.txt; do
-            curl -fSL --retry 3 -o "model/$f" "https://huggingface.co/$repo/resolve/$rev/$f"
-          done
-          ls -l model
-          sha256sum model/*
-          # Ilova tekshiradigan hajmlar bilan bir xilmi.
-          for f in model.int8.onnx tokens.txt; do
-            want=$(grep -oP "\('$f', \K[0-9]+" lib/phone/offline_stt.dart)
-            got=$(stat -c %s "model/$f")
-            echo "$f: kutilgan $want, yuklangan $got"
-            [ "$want" = "$got" ]
-          done
-          echo "STT_MODEL_DIR=$PWD/model" >> "$GITHUB_ENV"
       - name: O‘zbekcha sinov ovozlari (Edge TTS)
         run: |
           pip install --quiet edge-tts
@@ -269,12 +248,17 @@ jobs:
           TXT
           cat wav/list.txt
           echo "STT_WAVS=$PWD/wav/list.txt" >> "$GITHUB_ENV"
-      - name: Internetsiz tanish (ilovadagi sherpa-onnx sozlamasi bilan)
+      # Ikkala model (aniq va yengil) ilovaning o‘z yuklash kodi bilan
+      # Hugging Face’dan olinadi va bir xil jumlalarda solishtiriladi.
+      - name: Internetsiz tanish (ilovadagi yuklash va sherpa-onnx sozlamasi bilan)
         run: |
           lib=$(dirname "$(find ~/.pub-cache -path '*sherpa_onnx_linux*/linux/x64/libsherpa-onnx-c-api.so' | head -1)")
           echo "SHERPA_LIB_DIR=$lib"
-          SHERPA_LIB_DIR="$lib" LD_LIBRARY_PATH="$lib" \
+          mkdir -p models
+          SHERPA_LIB_DIR="$lib" LD_LIBRARY_PATH="$lib" STT_DIR="$PWD/models" \
             flutter test test/offline_stt_model_test.dart --reporter expanded
+          echo "### Natijalar"
+          ls -lR models
 
   # Qo‘lda ishga tushirilganda (clean_releases): eski barcha release va teglar
   # o‘chiriladi, keyin Releases sahifasida faqat yangi yig‘ilish qoladi.
@@ -333,7 +317,7 @@ jobs:
 
           **Ubuntu kompyuter (HDMI → televizor):** `sudo apt install libmpv2 libwebkit2gtk-4.1-0 gstreamer1.0-libav gstreamer1.0-plugins-good gstreamer1.0-plugins-bad` (22.04 da `libmpv2` o‘rniga `libmpv1`). Ovozli javob uchun `sudo apt install espeak-ng`. Arxivni oching va `./install.sh --autostart`.
 
-          **Yangiliklar:** Telefonda internetsiz o‘zbekcha nutqni tanish — NVIDIA FastConformer modeli (174 MB, bir marta yuklanadi): pultdagi 🎤 ni bosib turing → “Internetsiz o‘zbekcha nutq” → Yuklab olish. Bepul AI (kalitsiz, GPT nano) endi dolzarb savollarda internetdan qidirib javob beradi (yangiliklar, narxlar, natijalar).
+          **Yangiliklar:** Telefonda internetsiz o‘zbekcha nutqni tanish — ikki model: “Aniq” (NVIDIA FastConformer, 174 MB) va “Yengil” (Vosk Zipformer2, 94 MB), bir marta yuklanadi: pultdagi 🎤 ni bosib turing → “Internetsiz o‘zbekcha nutq” → Yuklab olish. Bepul AI (kalitsiz, GPT nano) endi dolzarb savollarda internetdan qidirib javob beradi (yangiliklar, narxlar, natijalar).
 
           **Avvalgi yangiliklar:** saytlarda pult bilan televizordagidek tanlash (sichqonchasiz), YouTube — televizor ko‘rinishida (youtube.com/tv), iDub — idub.tv, “z3wax tv” yuklanish ekrani.
 

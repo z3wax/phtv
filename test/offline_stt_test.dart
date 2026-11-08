@@ -74,18 +74,38 @@ void main() {
     expect(b, [-0.5, 32767 / 32768]);
   });
 
-  group('model yuklash', () {
+  group('model yuklash va tanlash', () {
     late HttpServer server;
     late Directory tmp;
     final served = <String, List<int>>{};
     final ranges = <String?>[];
+    late SttModelSpec ctc, zip;
+    late List<SttModelSpec> previousModels;
+
+    SttModelSpec spec(String id, List<String> names, SttKind kind) =>
+        SttModelSpec(
+          id: id,
+          name: id,
+          megabytes: '1 MB',
+          about: '',
+          credit: '',
+          repo: 'test/$id',
+          revision: 'main',
+          files: [
+            for (final n in names) (n, served[n.split('/').last]!.length),
+          ],
+          kind: kind,
+        );
 
     setUp(() async {
       tmp = await Directory.systemTemp.createTemp('stt');
       served
         ..clear()
         ..['model.int8.onnx'] = List.generate(5000, (i) => i % 251)
-        ..['tokens.txt'] = 'a 0\nb 1\n<blk> 2\n'.codeUnits;
+        ..['tokens.txt'] = 'a 0\nb 1\n<blk> 2\n'.codeUnits
+        ..['encoder.onnx'] = List.generate(3000, (i) => i % 7)
+        ..['decoder.onnx'] = List.generate(200, (i) => i % 5)
+        ..['joiner.onnx'] = List.generate(100, (i) => i % 3);
       ranges.clear();
       server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       server.listen((req) async {
@@ -117,31 +137,41 @@ void main() {
         req.response.add(data.sublist(start));
         await req.response.close();
       });
+      ctc = spec('ctc', ['model.int8.onnx', 'tokens.txt'], SttKind.nemoCtc);
+      // Vosk kabi: fayllar repozitoriyda papkalarda.
+      zip = spec('zip', [
+        'am-onnx/encoder.onnx',
+        'am-onnx/decoder.onnx',
+        'am-onnx/joiner.onnx',
+        'lang/tokens.txt',
+      ], SttKind.transducer);
       final stt = OfflineStt.instance;
+      previousModels = stt.models;
+      stt.models = [ctc, zip];
       stt.baseDir = () async => tmp;
-      stt.urlFor = (f) =>
-          Uri.parse('http://127.0.0.1:${server.port}/resolve/$f');
-      stt.files = [
-        ('model.int8.onnx', served['model.int8.onnx']!.length),
-        ('tokens.txt', served['tokens.txt']!.length),
-      ];
-      await OfflineStt.instance.remove();
+      stt.urlFor = (m, f) =>
+          Uri.parse('http://127.0.0.1:${server.port}/resolve/${m.id}/$f');
+      await stt.select(ctc);
     });
 
     tearDown(() async {
-      await OfflineStt.instance.remove();
+      final stt = OfflineStt.instance;
+      await stt.remove(ctc);
+      await stt.remove(zip);
+      stt.models = previousModels;
+      await stt.select(UzbekSttModel.accurate);
       await server.close(force: true);
       await tmp.delete(recursive: true);
     });
 
     test('yo‘naltirish orqali yuklanadi va o‘rnatilgan deb topiladi', () async {
       final stt = OfflineStt.instance;
-      expect(await stt.refresh(), isFalse);
-      expect(stt.status.value.phase, SttModelPhase.missing);
-      await stt.download();
-      expect(stt.status.value.phase, SttModelPhase.ready);
-      expect(await stt.refresh(), isTrue);
-      final dir = await stt.modelDir();
+      expect(await stt.refresh(ctc), isFalse);
+      expect(stt.statusOf(ctc).value.phase, SttModelPhase.missing);
+      await stt.download(ctc);
+      expect(stt.statusOf(ctc).value.phase, SttModelPhase.ready);
+      expect(await stt.refresh(ctc), isTrue);
+      final dir = await stt.modelDir(ctc);
       expect(
         await File('${dir.path}/model.int8.onnx').readAsBytes(),
         served['model.int8.onnx'],
@@ -149,16 +179,50 @@ void main() {
       expect(ranges, [null, null]);
     });
 
+    test('papkalardagi fayllar (Vosk) bitta papkaga yuklanadi', () async {
+      final stt = OfflineStt.instance;
+      await stt.download(zip);
+      expect(stt.statusOf(zip).value.phase, SttModelPhase.ready);
+      final dir = await stt.modelDir(zip);
+      for (final name in [
+        'encoder.onnx',
+        'decoder.onnx',
+        'joiner.onnx',
+        'tokens.txt',
+      ]) {
+        expect(await File('${dir.path}/$name').readAsBytes(), served[name]);
+      }
+      // Yuklangan model tanlanadi.
+      expect(stt.selected.value.id, 'zip');
+      expect((await stt.active())?.id, 'zip');
+    });
+
+    test('tanlangani yo‘q bo‘lsa — o‘rnatilgan boshqasi ishlaydi', () async {
+      final stt = OfflineStt.instance;
+      expect(await stt.active(), isNull);
+      await stt.download(ctc);
+      await stt.download(zip);
+      expect((await stt.active())?.id, 'zip');
+      await stt.select(ctc);
+      expect((await stt.active())?.id, 'ctc');
+      // Tanlangani o‘chirilsa — boshqasi tanlanadi.
+      await stt.remove(ctc);
+      expect(stt.selected.value.id, 'zip');
+      expect((await stt.active())?.id, 'zip');
+      await stt.remove(zip);
+      expect(await stt.active(), isNull);
+    });
+
     test('uzilgan yuklash qolgan joyidan davom etadi', () async {
       final stt = OfflineStt.instance;
-      final dir = await stt.modelDir();
+      final dir = await stt.modelDir(ctc);
       await dir.create(recursive: true);
       // Oldingi urinishda 1200 bayt yuklangan.
       await File(
         '${dir.path}/model.int8.onnx.part',
       ).writeAsBytes(served['model.int8.onnx']!.sublist(0, 1200));
-      await stt.download();
-      expect(stt.status.value.phase, SttModelPhase.ready);
+      await stt.download(ctc);
+      expect(stt.statusOf(ctc).value.phase, SttModelPhase.ready);
       expect(ranges.first, 'bytes=1200-');
       expect(
         await File('${dir.path}/model.int8.onnx').readAsBytes(),
@@ -167,24 +231,38 @@ void main() {
       expect(await File('${dir.path}/model.int8.onnx.part').exists(), isFalse);
     });
 
-    test('server xato bersa — tushunarli xabar, keyin qayta urinish', () async {
+    test('server xato bersa — tushunarli xabar', () async {
       final stt = OfflineStt.instance;
-      stt.urlFor = (f) =>
+      stt.urlFor = (m, f) =>
           Uri.parse('http://127.0.0.1:${server.port}/cdn/yoq-$f');
-      await stt.download();
-      expect(stt.status.value.phase, SttModelPhase.failed);
-      expect(stt.status.value.error, isNotEmpty);
+      await stt.download(ctc);
+      expect(stt.statusOf(ctc).value.phase, SttModelPhase.failed);
+      expect(stt.statusOf(ctc).value.error, isNotEmpty);
+      expect(await stt.active(), isNull);
     });
 
     test('hajmi mos kelmasa — o‘rnatilmagan', () async {
       final stt = OfflineStt.instance;
-      await stt.download();
-      final dir = await stt.modelDir();
+      await stt.download(ctc);
+      final dir = await stt.modelDir(ctc);
       await File('${dir.path}/tokens.txt').writeAsString('buzilgan');
-      expect(await stt.refresh(), isFalse);
-      expect(stt.status.value.phase, SttModelPhase.missing);
-      await stt.remove();
+      expect(await stt.refresh(ctc), isFalse);
+      expect(stt.statusOf(ctc).value.phase, SttModelPhase.missing);
+      await stt.remove(ctc);
       expect(await dir.exists(), isFalse);
     });
+  });
+
+  test('ikki model: hajmlar va manzillar', () {
+    expect(UzbekSttModel.accurate.bytes, 173888181 + 9759);
+    expect(UzbekSttModel.light.bytes, 90994145 + 2093080 + 1026462 + 3957);
+    expect(UzbekSttModel.light.megabytes, '94 MB');
+    expect(
+      UzbekSttModel.light.url('am-onnx/encoder.onnx').toString(),
+      'https://huggingface.co/alphacep/vosk-model-small-streaming-uz/resolve/'
+      '${UzbekSttModel.light.revision}/am-onnx/encoder.onnx',
+    );
+    expect(UzbekSttModel.byId('uz-vosk-zipformer'), UzbekSttModel.light);
+    expect(UzbekSttModel.byId('yoq'), UzbekSttModel.accurate);
   });
 }

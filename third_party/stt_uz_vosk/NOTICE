@@ -1,0 +1,12 @@
+Internetsiz o‘zbekcha nutqni tanish — “Yengil” model (telefon ilovasi
+yuklab oladi, repozitoriyga kiritilmagan):
+
+  Vosk Uzbek Speech Recognition Model (Zipformer2, sherpa-onnx)
+  by Alpha Cephei Inc., licensed under the Apache License 2.0
+  https://www.apache.org/licenses/LICENSE-2.0
+  https://huggingface.co/alphacep/vosk-model-small-streaming-uz
+  (am-onnx/encoder.onnx, am-onnx/decoder.onnx, am-onnx/joiner.onnx,
+  lang/tokens.txt)
+
+O‘qitish ma’lumotlari (model sahifasiga ko‘ra): Common Voice, ISSAI Uzbek
+Speech Corpus, UzbekVoice. z3wax TV modelni o‘zgartirmaydi.
