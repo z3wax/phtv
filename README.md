@@ -35,10 +35,13 @@ TV, video, brauzer va AI bir xil saqlangan ovoz foizini ishlatadi.
 Telefon pultida o‘zbekcha gapirilganini telefonning o‘zi, internetsiz taniydi.
 Ikki model bor — bittasini yoki ikkalasini yuklab, tanlash mumkin:
 
-| Model | Hajm | Xato (FLEURS) | Kimga |
-|---|---|---|---|
-| **Aniq** — NVIDIA FastConformer (115M) | 174 MB | ~11% | o‘rtacha va kuchli telefonlar |
-| **Yengil** — Vosk Zipformer2 (Alpha Cephei) | 94 MB | ~18% | joyi yoki xotirasi kam telefonlar |
+| Model | Hajm | Xato (FLEURS) | CI sinovi* | Kimga |
+|---|---|---|---|---|
+| **Aniq** — NVIDIA FastConformer (115M) | 174 MB | ~11% | 39/44 so‘z (89%), 28 s ovoz 0,6 s da | o‘rtacha va kuchli telefonlar |
+| **Yengil** — Vosk Zipformer2 (Alpha Cephei, oqimli) | 94 MB | ~18% | 36/44 so‘z (82%), 28 s ovoz 1,1 s da | joyi yoki xotirasi kam telefonlar |
+
+\* 10 ta o‘zbekcha buyruq (Madina va Sardor ovozlari), ilovaning o‘z yuklash
+kodi va sherpa-onnx sozlamasi bilan, GitHub Actions protsessorida.
 
 Taqqoslash uchun: Whisper large-v3 o‘zbekchada 100% dan ortiq xato qiladi.
 Modellar ilovaga qo‘shilmagan — bir marta yuklanadi: pultdagi 🎤 ni
